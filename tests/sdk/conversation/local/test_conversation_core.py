@@ -10,6 +10,7 @@ import pytest
 from pydantic import SecretStr
 
 from openhands.sdk.agent import Agent
+from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.conversation import Conversation
 from openhands.sdk.credential import CredentialSyncError
 from openhands.sdk.event.llm_convertible import MessageEvent
@@ -46,6 +47,29 @@ def test_conversation_basic_creation():
         assert isinstance(conv.id, uuid.UUID)  # UUID type
         assert conv.state is not None
         assert conv._state.agent == agent
+
+
+def test_set_condenser_max_tokens_persists_agent_update():
+    base_agent = create_test_agent()
+    agent = base_agent.model_copy(
+        update={
+            "condenser": LLMSummarizingCondenser(
+                llm=base_agent.llm,
+                max_size=240,
+                keep_first=2,
+            )
+        }
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        conv = Conversation(agent=agent, persistence_dir=tmpdir, workspace=tmpdir)
+        assert isinstance(conv.agent.condenser, LLMSummarizingCondenser)
+
+        conv.set_condenser_max_tokens(65_536)
+
+        assert conv.agent.condenser.max_tokens == 65_536
+        assert conv.state.agent.condenser is not None
+        assert conv.state.agent.condenser.max_tokens == 65_536
 
 
 def test_conversation_event_log_functionality():

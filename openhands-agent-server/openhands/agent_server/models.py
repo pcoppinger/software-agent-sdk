@@ -500,6 +500,15 @@ class SetSecurityAnalyzerRequest(BaseModel):
     )
 
 
+class SetCondenserTokenLimitRequest(BaseModel):
+    """Payload to set the token-based condensation threshold."""
+
+    max_tokens: int = Field(
+        gt=0,
+        description="Maximum event-history tokens before condensation is required",
+    )
+
+
 class UpdateConversationRequest(BaseModel):
     """Payload to update conversation metadata."""
 
