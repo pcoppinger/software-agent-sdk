@@ -45,6 +45,7 @@ with warnings.catch_warnings():
     warnings.simplefilter("ignore")
     import litellm
 
+
 from typing import Final, cast
 
 from litellm import (
@@ -120,6 +121,35 @@ from openhands.sdk.llm.utils.retry_mixin import RetryMixin
 from openhands.sdk.llm.utils.telemetry import Telemetry
 from openhands.sdk.llm.utils.vertex_preflight import assert_vertex_sdk_available
 from openhands.sdk.logger import ENV_LOG_DIR, get_logger
+
+
+_STATIC_MODIFY_PARAMS_ENV = "OPENHANDS_LITELLM_STATIC_MODIFY_PARAMS"
+
+
+def _read_static_modify_params() -> bool | None:
+    """Read an optional immutable process-wide LiteLLM policy.
+
+    LiteLLM exposes ``modify_params`` as process-global mutable state. OpenHands
+    normally serializes transport calls while temporarily changing it. A
+    deployment whose profiles all use the same value can pin it once and let
+    independent streamed generations run concurrently.
+    """
+    raw = os.getenv(_STATIC_MODIFY_PARAMS_ENV)
+    if raw is None:
+        return None
+    normalized = raw.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(
+        f"{_STATIC_MODIFY_PARAMS_ENV} must be a boolean value, got {raw!r}"
+    )
+
+
+_STATIC_MODIFY_PARAMS = _read_static_modify_params()
+if _STATIC_MODIFY_PARAMS is not None:
+    litellm.modify_params = _STATIC_MODIFY_PARAMS
 
 
 logger = get_logger(__name__)
@@ -2271,6 +2301,21 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
 
     @contextmanager
     def _litellm_modify_params_ctx(self, flag: bool):
+        if _STATIC_MODIFY_PARAMS is not None:
+            if flag is not _STATIC_MODIFY_PARAMS:
+                raise RuntimeError(
+                    "LLM profile modify_params does not match the immutable "
+                    f"process policy {_STATIC_MODIFY_PARAMS_ENV}="
+                    f"{_STATIC_MODIFY_PARAMS}"
+                )
+            if getattr(litellm, "modify_params", None) is not _STATIC_MODIFY_PARAMS:
+                raise RuntimeError(
+                    "litellm.modify_params changed after immutable process "
+                    "policy initialization"
+                )
+            yield
+            return
+
         with self._litellm_modify_params_lock:
             old = getattr(litellm, "modify_params", None)
             try:
@@ -2312,6 +2357,21 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
         actually taken. Without this the lock would be acquired with nobody to
         release it, permanently wedging every LLM call process-wide.
         """
+        if _STATIC_MODIFY_PARAMS is not None:
+            if flag is not _STATIC_MODIFY_PARAMS:
+                raise RuntimeError(
+                    "LLM profile modify_params does not match the immutable "
+                    f"process policy {_STATIC_MODIFY_PARAMS_ENV}="
+                    f"{_STATIC_MODIFY_PARAMS}"
+                )
+            if getattr(litellm, "modify_params", None) is not _STATIC_MODIFY_PARAMS:
+                raise RuntimeError(
+                    "litellm.modify_params changed after immutable process "
+                    "policy initialization"
+                )
+            yield
+            return
+
         loop = asyncio.get_running_loop()
         acquire = loop.run_in_executor(
             self._litellm_modify_params_lock_executor,

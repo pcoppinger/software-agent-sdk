@@ -134,6 +134,76 @@ def test_litellm_modify_params_context_serializes_threads():
     assert llm_module.litellm.modify_params == original
 
 
+def test_static_litellm_modify_params_context_allows_parallel_threads(monkeypatch):
+    """An immutable process policy must not serialize independent streams."""
+    monkeypatch.setattr(llm_module, "_STATIC_MODIFY_PARAMS", True)
+    monkeypatch.setattr(llm_module.litellm, "modify_params", True)
+    llm = LLM.model_construct(modify_params=True)
+
+    both_entered = threading.Barrier(2, timeout=2)
+    release = threading.Event()
+    errors: list[BaseException] = []
+
+    def run():
+        try:
+            with llm._litellm_modify_params_ctx(True):
+                both_entered.wait()
+                release.wait(timeout=2)
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=run) for _ in range(2)]
+    try:
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=0.2)
+        assert all(thread.is_alive() for thread in threads)
+    finally:
+        release.set()
+        for thread in threads:
+            thread.join(timeout=2)
+
+    assert errors == []
+    assert all(not thread.is_alive() for thread in threads)
+
+
+def test_static_litellm_modify_params_context_rejects_mixed_profiles(monkeypatch):
+    monkeypatch.setattr(llm_module, "_STATIC_MODIFY_PARAMS", True)
+    monkeypatch.setattr(llm_module.litellm, "modify_params", True)
+    llm = LLM.model_construct(modify_params=False)
+
+    with pytest.raises(RuntimeError, match="does not match the immutable"):
+        with llm._litellm_modify_params_ctx(False):
+            pass
+
+
+async def test_static_alitellm_modify_params_context_allows_parallel_tasks(
+    monkeypatch,
+):
+    monkeypatch.setattr(llm_module, "_STATIC_MODIFY_PARAMS", True)
+    monkeypatch.setattr(llm_module.litellm, "modify_params", True)
+    llm = LLM.model_construct(modify_params=True)
+
+    both_entered = asyncio.Event()
+    release = asyncio.Event()
+    entered = 0
+
+    async def run():
+        nonlocal entered
+        async with llm._alitellm_modify_params_ctx(True):
+            entered += 1
+            if entered == 2:
+                both_entered.set()
+            await release.wait()
+
+    tasks = [asyncio.create_task(run()) for _ in range(2)]
+    await asyncio.wait_for(both_entered.wait(), timeout=2)
+    assert all(not task.done() for task in tasks)
+    release.set()
+    await asyncio.gather(*tasks)
+
+
 class _CountingLock:
     """threading.Lock wrapper that counts successful acquires/releases.
 
