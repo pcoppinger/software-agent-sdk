@@ -389,7 +389,11 @@ def test_switch_llm_refreshes_llm_condenser_credentials(
     switched but that copy is left behind, normal turns can keep working while
     the next condensation request still calls the old no-credential model.
     """
-    initial_llm = LLM(model="litellm_proxy/old-model", usage_id="default")
+    initial_llm = LLM(
+        model="litellm_proxy/old-model",
+        usage_id="default",
+        stream=True,
+    )
     initial_condenser_llm = initial_llm.model_copy(update={"usage_id": "condenser"})
     initial_condenser_llm.reset_metrics()
     condenser = LLMSummarizingCondenser(
@@ -407,6 +411,7 @@ def test_switch_llm_refreshes_llm_condenser_credentials(
         model="litellm_proxy/new-model",
         api_key=SecretStr("new-test-key"),
         usage_id="profile:new",
+        stream=True,
     )
 
     conv.switch_llm(switched_llm)
@@ -420,6 +425,7 @@ def test_switch_llm_refreshes_llm_condenser_credentials(
     assert condenser_llm is not initial_condenser_llm
     assert condenser_llm.model == "litellm_proxy/new-model"
     assert condenser_llm.usage_id == "condenser"
+    assert condenser_llm.stream is False
     assert isinstance(condenser_llm.api_key, SecretStr)
     assert condenser_llm.api_key.get_secret_value() == "new-test-key"
     assert state_condenser_llm.model == condenser_llm.model

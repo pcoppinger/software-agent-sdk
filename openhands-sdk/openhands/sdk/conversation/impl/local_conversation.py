@@ -1630,6 +1630,9 @@ class LocalConversation(BaseConversation):
             context={"expose_secrets": True},
             exclude={"usage_id"},
         )
+        # LLMSummarizingCondenser disables streaming during validation.
+        if current_config.get("stream"):
+            current_config["stream"] = False
         condenser_config = condenser.llm.model_dump(
             mode="json",
             context={"expose_secrets": True},
@@ -1639,7 +1642,7 @@ class LocalConversation(BaseConversation):
             return condenser
 
         condenser_llm = new_llm.model_copy(
-            update={"usage_id": condenser.llm.usage_id},
+            update={"usage_id": condenser.llm.usage_id, "stream": False},
         )
         condenser_llm.reset_metrics()
         return condenser.model_copy(update={"llm": condenser_llm})
