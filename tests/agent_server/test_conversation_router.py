@@ -2071,6 +2071,91 @@ def test_update_secrets_with_mixed_formats(
 # --- switch_profile endpoint tests ---
 
 
+def test_set_conversation_condenser_token_limit_success(
+    client, mock_conversation_service, mock_event_service, sample_conversation_id
+):
+    mock_conversation = MagicMock()
+    mock_conversation_service.get_event_service.return_value = mock_event_service
+    mock_event_service.get_conversation.return_value = mock_conversation
+    client.app.dependency_overrides[get_conversation_service] = lambda: (
+        mock_conversation_service
+    )
+
+    try:
+        response = client.post(
+            f"/api/conversations/{sample_conversation_id}/condenser/token_limit",
+            json={"max_tokens": 65_536},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"success": True}
+        mock_conversation.set_condenser_max_tokens.assert_called_once_with(65_536)
+    finally:
+        client.app.dependency_overrides.clear()
+
+
+def test_set_conversation_condenser_token_limit_rejects_invalid_value(
+    client, mock_conversation_service, sample_conversation_id
+):
+    client.app.dependency_overrides[get_conversation_service] = lambda: (
+        mock_conversation_service
+    )
+
+    try:
+        response = client.post(
+            f"/api/conversations/{sample_conversation_id}/condenser/token_limit",
+            json={"max_tokens": 0},
+        )
+
+        assert response.status_code == 422
+    finally:
+        client.app.dependency_overrides.clear()
+
+
+def test_set_conversation_condenser_token_limit_not_found(
+    client, mock_conversation_service, sample_conversation_id
+):
+    mock_conversation_service.get_event_service.return_value = None
+    client.app.dependency_overrides[get_conversation_service] = lambda: (
+        mock_conversation_service
+    )
+
+    try:
+        response = client.post(
+            f"/api/conversations/{sample_conversation_id}/condenser/token_limit",
+            json={"max_tokens": 65_536},
+        )
+
+        assert response.status_code == 404
+    finally:
+        client.app.dependency_overrides.clear()
+
+
+def test_set_conversation_condenser_token_limit_rejects_incompatible_condenser(
+    client, mock_conversation_service, mock_event_service, sample_conversation_id
+):
+    mock_conversation = MagicMock()
+    mock_conversation.set_condenser_max_tokens.side_effect = ValueError(
+        "conversation does not use an LLM summarizing condenser"
+    )
+    mock_conversation_service.get_event_service.return_value = mock_event_service
+    mock_event_service.get_conversation.return_value = mock_conversation
+    client.app.dependency_overrides[get_conversation_service] = lambda: (
+        mock_conversation_service
+    )
+
+    try:
+        response = client.post(
+            f"/api/conversations/{sample_conversation_id}/condenser/token_limit",
+            json={"max_tokens": 65_536},
+        )
+
+        assert response.status_code == 400
+        assert "LLM summarizing condenser" in response.json()["detail"]
+    finally:
+        client.app.dependency_overrides.clear()
+
+
 def test_switch_conversation_profile_success(
     client, mock_conversation_service, mock_event_service, sample_conversation_id
 ):

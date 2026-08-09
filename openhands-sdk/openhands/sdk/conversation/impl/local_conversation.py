@@ -2474,6 +2474,21 @@ class LocalConversation(BaseConversation):
             self._state.confirmation_policy = policy
         logger.info(f"Confirmation policy set to: {policy}")
 
+    def set_condenser_max_tokens(self, max_tokens: int) -> None:
+        """Set and persist the token threshold for the active LLM condenser."""
+        if max_tokens <= 0:
+            raise ValueError("max_tokens must be greater than zero")
+
+        with self._state:
+            condenser = self.agent.condenser
+            if not isinstance(condenser, LLMSummarizingCondenser):
+                raise ValueError(
+                    "conversation does not use an LLM summarizing condenser"
+                )
+            updated_condenser = condenser.model_copy(update={"max_tokens": max_tokens})
+            self.agent = self.agent.model_copy(update={"condenser": updated_condenser})
+            self._state.agent = self.agent
+
     def reject_pending_actions(self, reason: str = "User rejected the action") -> None:
         """Reject all pending actions from the agent.
 

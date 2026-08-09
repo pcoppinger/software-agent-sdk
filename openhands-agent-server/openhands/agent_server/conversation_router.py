@@ -35,6 +35,7 @@ from openhands.agent_server.models import (
     ForkConversationRequest,
     NavigateConversationRequest,
     SendMessageRequest,
+    SetCondenserTokenLimitRequest,
     SetConfirmationPolicyRequest,
     SetSecurityAnalyzerRequest,
     StartConversationRequest,
@@ -639,6 +640,30 @@ async def condense_conversation(
     success = await conversation_service.condense(conversation_id)
     if not success:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+    return Success()
+
+
+@conversation_router.post(
+    "/{conversation_id}/condenser/token_limit",
+    responses={
+        400: {"description": "Conversation has no compatible condenser"},
+        404: {"description": "Conversation not found"},
+    },
+)
+async def set_conversation_condenser_token_limit(
+    conversation_id: UUID,
+    request: SetCondenserTokenLimitRequest,
+    conversation_service: ConversationService = Depends(get_conversation_service),
+) -> Success:
+    """Set and persist a conversation's token-based condensation threshold."""
+    event_service = await conversation_service.get_event_service(conversation_id)
+    if event_service is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    conversation = event_service.get_conversation()
+    try:
+        conversation.set_condenser_max_tokens(request.max_tokens)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
     return Success()
 
 
