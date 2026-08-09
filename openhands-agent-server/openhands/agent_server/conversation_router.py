@@ -473,9 +473,8 @@ async def switch_conversation_profile(
     event_service = await conversation_service.get_event_service(conversation_id)
     if event_service is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND)
-    conversation = event_service.get_conversation()
     try:
-        conversation.switch_profile(profile_name)
+        await event_service.switch_profile(profile_name)
     except FileNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -507,11 +506,10 @@ async def switch_conversation_llm(
     event_service = await conversation_service.get_event_service(conversation_id)
     if event_service is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND)
-    conversation = event_service.get_conversation()
     cipher = get_cipher(request)
     if cipher is not None:
         llm = decrypt_incoming_llm_secrets(llm, cipher)
-    conversation.switch_llm(llm)
+    await event_service.switch_llm(llm)
     return Success()
 
 
@@ -659,9 +657,8 @@ async def set_conversation_condenser_token_limit(
     event_service = await conversation_service.get_event_service(conversation_id)
     if event_service is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND)
-    conversation = event_service.get_conversation()
     try:
-        conversation.set_condenser_max_tokens(request.max_tokens)
+        await event_service.set_condenser_max_tokens(request.max_tokens)
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
     return Success()

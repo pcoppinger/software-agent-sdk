@@ -25,6 +25,7 @@ from openhands.agent_server.models import (
 from openhands.agent_server.pub_sub import Subscriber
 from openhands.sdk import LLM, Agent, AgentBase, Conversation, Message
 from openhands.sdk.agent import ACPAgent
+from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.conversation.event_store import EventLog
 from openhands.sdk.conversation.fifo_lock import FIFOLock
 from openhands.sdk.conversation.impl.local_conversation import (
@@ -1860,6 +1861,76 @@ class TestEventServiceSaveMeta:
         )
         assert isinstance(loaded.agent, ACPAgent)
         assert loaded.agent.acp_model == "new-model"
+
+    @pytest.mark.asyncio
+    async def test_switch_profile_persists_runtime_agent_to_meta(self, tmp_path):
+        """An LLM profile switch must survive an agent-server restart."""
+        old_agent = Agent(llm=LLM(model="old-model", usage_id="old"), tools=[])
+        stored = StoredConversation(
+            id=uuid4(),
+            agent=old_agent,
+            workspace=LocalWorkspace(working_dir=str(tmp_path)),
+            confirmation_policy=NeverConfirm(),
+            initial_message=None,
+            metrics=None,
+        )
+        service = EventService(stored=stored, conversations_dir=tmp_path)
+        service.conversation_dir.mkdir(parents=True, exist_ok=True)
+
+        new_agent = old_agent.model_copy(
+            update={"llm": LLM(model="new-model", usage_id="profile:new")}
+        )
+        service._conversation = MagicMock()
+        service._conversation.agent = new_agent
+
+        await service.switch_profile("new")
+
+        service._conversation.switch_profile.assert_called_once_with("new")
+        assert service.stored.agent.llm.model == "new-model"
+        loaded = StoredConversation.model_validate_json(
+            (service.conversation_dir / "meta.json").read_text()
+        )
+        assert loaded.agent.llm.model == "new-model"
+
+    @pytest.mark.asyncio
+    async def test_condenser_token_limit_persists_runtime_agent_to_meta(self, tmp_path):
+        """A changed condenser threshold must survive an agent-server restart."""
+        llm = LLM(model="test-model", usage_id="test")
+        old_condenser = LLMSummarizingCondenser(
+            llm=llm,
+            max_size=240,
+            keep_first=2,
+        )
+        old_agent = Agent(
+            llm=llm,
+            tools=[],
+            condenser=old_condenser,
+        )
+        stored = StoredConversation(
+            id=uuid4(),
+            agent=old_agent,
+            workspace=LocalWorkspace(working_dir=str(tmp_path)),
+            confirmation_policy=NeverConfirm(),
+            initial_message=None,
+            metrics=None,
+        )
+        service = EventService(stored=stored, conversations_dir=tmp_path)
+        service.conversation_dir.mkdir(parents=True, exist_ok=True)
+
+        updated_condenser = old_condenser.model_copy(update={"max_tokens": 65_536})
+        service._conversation = MagicMock()
+        service._conversation.agent = old_agent.model_copy(
+            update={"condenser": updated_condenser}
+        )
+
+        await service.set_condenser_max_tokens(65_536)
+
+        service._conversation.set_condenser_max_tokens.assert_called_once_with(65_536)
+        loaded = StoredConversation.model_validate_json(
+            (service.conversation_dir / "meta.json").read_text()
+        )
+        assert isinstance(loaded.agent.condenser, LLMSummarizingCondenser)
+        assert loaded.agent.condenser.max_tokens == 65_536
 
     @pytest.mark.asyncio
     async def test_switch_acp_model_inactive_service_raises_value_error(self, tmp_path):

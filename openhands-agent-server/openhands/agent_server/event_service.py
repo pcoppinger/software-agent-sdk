@@ -1616,6 +1616,33 @@ class EventService:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._conversation.load_plugin, plugin_ref)
 
+    async def switch_profile(self, profile_name: str) -> None:
+        """Switch LLM profiles and persist the resulting agent configuration."""
+        conversation = self._conversation
+        if conversation is None:
+            raise ValueError("inactive_service")
+        await asyncio.to_thread(conversation.switch_profile, profile_name)
+        self.stored = self.stored.model_copy(update={"agent": conversation.agent})
+        await self.save_meta()
+
+    async def switch_llm(self, llm: LLM) -> None:
+        """Switch LLMs and persist the resulting agent configuration."""
+        conversation = self._conversation
+        if conversation is None:
+            raise ValueError("inactive_service")
+        await asyncio.to_thread(conversation.switch_llm, llm)
+        self.stored = self.stored.model_copy(update={"agent": conversation.agent})
+        await self.save_meta()
+
+    async def set_condenser_max_tokens(self, max_tokens: int) -> None:
+        """Set a condenser threshold and persist the resulting agent configuration."""
+        conversation = self._conversation
+        if conversation is None:
+            raise ValueError("inactive_service")
+        await asyncio.to_thread(conversation.set_condenser_max_tokens, max_tokens)
+        self.stored = self.stored.model_copy(update={"agent": conversation.agent})
+        await self.save_meta()
+
     async def switch_acp_model(self, model: str) -> None:
         """Switch the model on an ACP conversation.
 
