@@ -10,7 +10,11 @@ from typing import Any, Final, TypeGuard, cast
 
 from openhands.sdk.agent.acp_agent import ACPAgent
 from openhands.sdk.agent.base import AgentBase
-from openhands.sdk.context.condenser import CondenserBase, LLMSummarizingCondenser
+from openhands.sdk.context.condenser import (
+    CondenserBase,
+    LLMSummarizingCondenser,
+    default_condenser_llm,
+)
 from openhands.sdk.context.memory import load_memory
 from openhands.sdk.context.prompts.prompt import render_template
 from openhands.sdk.conversation.base import BaseConversation
@@ -1554,24 +1558,32 @@ class LocalConversation(BaseConversation):
         if not isinstance(condenser, LLMSummarizingCondenser):
             return condenser
 
-        current_config = current_llm.model_dump(
+        legacy_current_config = current_llm.model_copy(
+            update={"stream": False}
+        ).model_dump(
             mode="json",
             context={"expose_secrets": True},
             exclude={"usage_id"},
         )
-        # LLMSummarizingCondenser disables streaming during validation.
-        if current_config.get("stream"):
-            current_config["stream"] = False
+        optimized_current_config = default_condenser_llm(current_llm).model_dump(
+            mode="json",
+            context={"expose_secrets": True},
+            exclude={"usage_id"},
+        )
         condenser_config = condenser.llm.model_dump(
             mode="json",
             context={"expose_secrets": True},
             exclude={"usage_id"},
         )
-        if condenser_config != current_config:
+        if condenser_config not in (
+            legacy_current_config,
+            optimized_current_config,
+        ):
             return condenser
 
-        condenser_llm = new_llm.model_copy(
-            update={"usage_id": condenser.llm.usage_id, "stream": False},
+        condenser_llm = default_condenser_llm(
+            new_llm,
+            usage_id=condenser.llm.usage_id,
         )
         condenser_llm.reset_metrics()
         return condenser.model_copy(update={"llm": condenser_llm})
