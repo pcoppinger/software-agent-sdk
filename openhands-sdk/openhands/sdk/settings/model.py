@@ -277,9 +277,12 @@ class LLMSummarizingCondenserSettings(CondenserSettings):
         if not self.enabled:
             return None
 
-        from openhands.sdk.context.condenser import LLMSummarizingCondenser
+        from openhands.sdk.context.condenser import (
+            LLMSummarizingCondenser,
+            default_condenser_llm,
+        )
 
-        condenser_llm = llm.model_copy(update={"usage_id": "condenser"})
+        condenser_llm = default_condenser_llm(llm, usage_id="condenser")
         condenser_llm.reset_metrics()
         condenser_kwargs = self.model_dump(
             exclude={"enabled", "condenser_kind"},

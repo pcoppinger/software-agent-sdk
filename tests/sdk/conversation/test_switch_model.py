@@ -452,6 +452,70 @@ def test_switch_llm_refreshes_llm_condenser_credentials(
     assert content.text == "condensed summary"
 
 
+def test_switch_llm_disables_thinking_for_default_condenser(
+    empty_profile_store, tmp_path
+):
+    """The managed condenser should summarize without spending reasoning tokens."""
+    initial_llm = LLM(
+        model="ollama_chat/qwen-old",
+        usage_id="default",
+        stream=True,
+        max_output_tokens=24_576,
+        reasoning_effort="high",
+        litellm_extra_body={"think": True, "keep_alive": -1},
+    )
+    condenser = LLMSummarizingCondenser(
+        llm=initial_llm.model_copy(update={"usage_id": "condenser"}),
+        max_size=100,
+        keep_first=2,
+    )
+    conv = LocalConversation(
+        agent=Agent(llm=initial_llm, condenser=condenser, tools=[]),
+        workspace=tmp_path,
+    )
+
+    conv.switch_llm(
+        LLM(
+            model="ollama_chat/qwen-new",
+            usage_id="profile:thinking",
+            stream=True,
+            max_output_tokens=24_576,
+            reasoning_effort="high",
+            litellm_extra_body={"think": True, "keep_alive": -1},
+        )
+    )
+
+    assert conv.agent.llm.reasoning_effort == "high"
+    assert conv.agent.llm.max_output_tokens == 24_576
+    assert conv.agent.llm.litellm_extra_body["think"] is True
+    assert isinstance(conv.agent.condenser, LLMSummarizingCondenser)
+    condenser_llm = conv.agent.condenser.llm
+    assert condenser_llm.model == "ollama_chat/qwen-new"
+    assert condenser_llm.stream is False
+    assert condenser_llm.reasoning_effort == "none"
+    assert condenser_llm.max_output_tokens == 4_096
+    assert condenser_llm.litellm_extra_body == {
+        "think": False,
+        "keep_alive": -1,
+    }
+
+    # Once optimized, it must still be recognized as the managed condenser
+    # and follow a later primary-model switch.
+    conv.switch_llm(
+        LLM(
+            model="ollama_chat/qwen-later",
+            usage_id="profile:later",
+            max_output_tokens=16_384,
+            reasoning_effort="none",
+            litellm_extra_body={"think": False, "keep_alive": -1},
+        )
+    )
+    assert isinstance(conv.agent.condenser, LLMSummarizingCondenser)
+    assert conv.agent.condenser.llm.model == "ollama_chat/qwen-later"
+    assert conv.agent.condenser.llm.max_output_tokens == 4_096
+    assert conv.agent.condenser.llm.litellm_extra_body["think"] is False
+
+
 def test_switch_llm_condenser_can_generate_condensation(
     empty_profile_store, tmp_path, monkeypatch
 ):

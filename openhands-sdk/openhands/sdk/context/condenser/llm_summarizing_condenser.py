@@ -27,6 +27,38 @@ from openhands.sdk.utils import maybe_truncate
 logger = get_logger(__name__)
 
 
+DEFAULT_CONDENSER_MAX_OUTPUT_TOKENS: Final[int] = 4_096
+
+
+def default_condenser_llm(llm: LLM, *, usage_id: str | None = None) -> LLM:
+    """Derive the lightweight summarization LLM from a primary-agent LLM.
+
+    Providers that expose an explicit ``think`` request option do not need
+    extended reasoning for routine history compression. Keep the same model and
+    residency controls, but disable thinking and bound summary generation. LLMs
+    without that provider option retain their existing reasoning configuration.
+    """
+    updates: dict[str, object] = {"stream": False}
+    if usage_id is not None:
+        updates["usage_id"] = usage_id
+
+    extra_body = dict(llm.litellm_extra_body)
+    if "think" in extra_body:
+        extra_body["think"] = False
+        updates.update(
+            {
+                "litellm_extra_body": extra_body,
+                "reasoning_effort": "none",
+                "max_output_tokens": min(
+                    llm.max_output_tokens or DEFAULT_CONDENSER_MAX_OUTPUT_TOKENS,
+                    DEFAULT_CONDENSER_MAX_OUTPUT_TOKENS,
+                ),
+            }
+        )
+
+    return llm.model_copy(update=updates)
+
+
 class Reason(Enum):
     """Reasons for condensation."""
 
@@ -513,5 +545,7 @@ _DEFAULT_KEEP_FIRST: Final[int] = 4
 def default_condenser(llm: LLM) -> LLMSummarizingCondenser:
     """Standard summarizing condenser used by the default agent and sub-agents."""
     return LLMSummarizingCondenser(
-        llm=llm, max_size=_DEFAULT_MAX_SIZE, keep_first=_DEFAULT_KEEP_FIRST
+        llm=default_condenser_llm(llm),
+        max_size=_DEFAULT_MAX_SIZE,
+        keep_first=_DEFAULT_KEEP_FIRST,
     )
