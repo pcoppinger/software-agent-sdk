@@ -1239,6 +1239,35 @@ class OpenHandsAgentSettings(AgentSettingsBase):
             ).model_dump()
         },
     )
+    include_default_tools: list[str] | None = Field(
+        default=None,
+        description=(
+            "Exact built-in tool class names to expose. None preserves the "
+            "standard FinishTool/ThinkTool defaults and enable_switch_llm_tool "
+            "behavior; an explicit list is used exactly as supplied."
+        ),
+        json_schema_extra={
+            SETTINGS_METADATA_KEY: SettingsFieldMetadata(
+                label="Built-in tools",
+                prominence=SettingProminence.MINOR,
+                variant="openhands",
+            ).model_dump()
+        },
+    )
+    auto_attach_vision_inspect_tool: bool = Field(
+        default=True,
+        description=(
+            "Automatically expose the vision-inspection built-in when a vision "
+            "profile is available for a non-vision primary model."
+        ),
+        json_schema_extra={
+            SETTINGS_METADATA_KEY: SettingsFieldMetadata(
+                label="Automatic vision inspection",
+                prominence=SettingProminence.MINOR,
+                variant="openhands",
+            ).model_dump()
+        },
+    )
     tool_concurrency_limit: int = Field(
         default=1,
         ge=1,
@@ -1333,9 +1362,12 @@ class OpenHandsAgentSettings(AgentSettingsBase):
             else default_tool_specs(enable_sub_agents=self.enable_sub_agents)
         )
 
-        include_default_tools = [tool.__name__ for tool in BUILT_IN_TOOLS]
-        if self.enable_switch_llm_tool:
-            include_default_tools.append(SwitchLLMTool.__name__)
+        if self.include_default_tools is None:
+            include_default_tools = [tool.__name__ for tool in BUILT_IN_TOOLS]
+            if self.enable_switch_llm_tool:
+                include_default_tools.append(SwitchLLMTool.__name__)
+        else:
+            include_default_tools = list(self.include_default_tools)
 
         llm = create_subscription_llm_from_config(self.llm)
         condenser = None if llm.is_subscription else self.build_condenser(llm)
@@ -1344,6 +1376,7 @@ class OpenHandsAgentSettings(AgentSettingsBase):
             tools=tools,
             mcp_config=self.mcp_config,
             include_default_tools=include_default_tools,
+            auto_attach_vision_inspect_tool=self.auto_attach_vision_inspect_tool,
             agent_context=self.agent_context,
             condenser=condenser,
             critic=self.build_critic(),

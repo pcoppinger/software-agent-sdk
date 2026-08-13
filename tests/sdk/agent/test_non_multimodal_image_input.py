@@ -251,6 +251,23 @@ def test_nonvision_model_can_use_vision_profile_tool(monkeypatch):
     assert "It shows a cat." in observation_content.text
 
 
+def test_nonvision_model_can_disable_automatic_vision_profile_tool(monkeypatch):
+    monkeypatch.setattr(
+        "openhands.sdk.agent.base.has_vision_profile_available", lambda: True
+    )
+    llm = TestLLM.from_messages([], model="text-only-model", disable_vision=True)
+    agent = Agent(
+        llm=llm,
+        tools=[],
+        include_default_tools=["FinishTool"],
+        auto_attach_vision_inspect_tool=False,
+    )
+    conversation = Conversation(agent=agent)
+    conversation._ensure_agent_ready()
+
+    assert list(agent.tools_map) == ["finish"]
+
+
 def test_profile_helper_registers_auxiliary_vision_llm(monkeypatch):
     monkeypatch.setattr(
         "openhands.sdk.agent.base.has_vision_profile_available", lambda: False

@@ -19,6 +19,7 @@ class DummyLLM:
     top_k: int | None = None
     top_p: float | None = 1.0
     temperature: float | None = 0.0
+    seed: int | None = None
     max_output_tokens: int = 1024
     extra_headers: dict[str, str] | None = None
     reasoning_effort: str | None = None
@@ -135,6 +136,16 @@ def test_non_reasoning_model_preserves_temp_and_top_p():
     # Non-reasoning models should retain temperature/top_p defaults
     assert out.get("temperature") == 0.6
     assert out.get("top_p") == 0.7
+
+
+def test_seed_is_forwarded_and_explicit_call_value_wins():
+    llm = DummyLLM(model="ollama_chat/test", seed=8675309)
+
+    assert select_chat_options(llm, user_kwargs={}, has_tools=True)["seed"] == 8675309
+    assert (
+        select_chat_options(llm, user_kwargs={"seed": 42}, has_tools=True)["seed"]
+        == 42
+    )
 
 
 def test_azure_renames_max_completion_tokens_to_max_tokens():
