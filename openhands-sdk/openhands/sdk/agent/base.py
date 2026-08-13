@@ -168,6 +168,14 @@ class AgentBase(DiscriminatedUnionMixin, ABC):
         ),
         examples=[["FinishTool", "ThinkTool"], ["FinishTool"], []],
     )
+    auto_attach_vision_inspect_tool: bool = Field(
+        default=True,
+        description=(
+            "Automatically attach VisionInspectTool when the primary model is "
+            "non-vision and a vision profile is available. Disable this when the "
+            "caller requires an exact, least-capability built-in tool set."
+        ),
+    )
     agent_context: AgentContext | None = Field(
         default=None,
         description="Optional AgentContext to initialize "
@@ -589,7 +597,8 @@ class AgentBase(DiscriminatedUnionMixin, ABC):
                 InvokeSkillTool.__name__,
             )
         if (
-            not self.llm.vision_is_active()
+            self.auto_attach_vision_inspect_tool
+            and not self.llm.vision_is_active()
             and VisionInspectTool.__name__ not in default_tool_names
             and has_vision_profile_available()
         ):

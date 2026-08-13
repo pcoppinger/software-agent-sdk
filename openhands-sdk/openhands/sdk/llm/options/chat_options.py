@@ -30,6 +30,7 @@ def select_chat_options(
         "top_k": llm.top_k,
         "top_p": llm.top_p,
         "temperature": llm.temperature,
+        "seed": llm.seed,
         # OpenAI-compatible param is `max_completion_tokens`
         "max_completion_tokens": max_output_tokens,
     }

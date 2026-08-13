@@ -72,6 +72,8 @@ def test_llm_agent_settings_export_schema_groups_sections() -> None:
         "enable_switch_llm_tool",
         "enable_classify_and_switch_llm_tool",
         "active_meta_profile",
+        "include_default_tools",
+        "auto_attach_vision_inspect_tool",
         "tool_concurrency_limit",
         "mcp_config",
     }
@@ -358,6 +360,8 @@ def test_export_agent_settings_schema_emits_variant_tagged_sections() -> None:
         "enable_switch_llm_tool",
         "enable_classify_and_switch_llm_tool",
         "active_meta_profile",
+        "include_default_tools",
+        "auto_attach_vision_inspect_tool",
         "tool_concurrency_limit",
         "mcp_config",
     }
@@ -1003,6 +1007,19 @@ def test_create_agent_empty_tools_stays_bare() -> None:
     settings = OpenHandsAgentSettings(llm=LLM(model="test-model"), tools=[])
     agent = settings.create_agent()
     assert agent.tools == []
+
+
+def test_create_agent_explicit_builtin_tools_are_exact() -> None:
+    settings = OpenHandsAgentSettings(
+        llm=LLM(model="test-model"),
+        tools=[],
+        include_default_tools=["FinishTool"],
+        enable_switch_llm_tool=True,
+        auto_attach_vision_inspect_tool=False,
+    )
+    agent = settings.create_agent()
+    assert agent.include_default_tools == ["FinishTool"]
+    assert agent.auto_attach_vision_inspect_tool is False
 
 
 def test_tool_concurrency_limit_defaults_to_one_when_omitted_from_payload() -> None:
