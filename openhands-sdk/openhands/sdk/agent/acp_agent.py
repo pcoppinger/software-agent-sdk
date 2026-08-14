@@ -106,8 +106,11 @@ from openhands.sdk.credential import (
 from openhands.sdk.event import (
     ACPToolCallEvent,
     ActionEvent,
+    AgentResponseFinality,
+    AuthorshipOrigin,
     MessageEvent,
     ObservationEvent,
+    SemanticPurpose,
     SystemPromptEvent,
 )
 from openhands.sdk.event.conversation_error import ConversationErrorEvent
@@ -3838,7 +3841,15 @@ class ACPAgent(AgentBase):
         )
         # Close any tool cards left in flight from the timed-out attempt.
         self._cancel_inflight_tool_calls()
-        on_event(MessageEvent(source="agent", llm_message=error_message))
+        on_event(
+            MessageEvent(
+                source="agent",
+                llm_message=error_message,
+                authorship_origin=AuthorshipOrigin.FRAMEWORK,
+                semantic_purpose=SemanticPurpose.ERROR_NOTICE,
+                agent_response_finality=AgentResponseFinality.NOT_APPLICABLE,
+            )
+        )
         state.execution_status = ConversationExecutionStatus.ERROR
 
     def _emit_turn_error(
@@ -3872,6 +3883,9 @@ class ACPAgent(AgentBase):
                     role="assistant",
                     content=[TextContent(text=f"ACP error: {error_detail}")],
                 ),
+                authorship_origin=AuthorshipOrigin.FRAMEWORK,
+                semantic_purpose=SemanticPurpose.ERROR_NOTICE,
+                agent_response_finality=AgentResponseFinality.NOT_APPLICABLE,
             )
         )
         # Emit typed ConversationErrorEvent so RemoteConversation surfaces

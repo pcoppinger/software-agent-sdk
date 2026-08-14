@@ -17,6 +17,12 @@ from openhands.agent_server.event_service import EventService
 from openhands.agent_server.models import StoredConversation
 from openhands.sdk.agent import Agent
 from openhands.sdk.conversation.state import ConversationExecutionStatus
+from openhands.sdk.event import (
+    AgentResponseFinality,
+    AuthorshipOrigin,
+    MessageEvent,
+    SemanticPurpose,
+)
 from openhands.sdk.event.conversation_state import ConversationStateUpdateEvent
 from openhands.sdk.llm import LLM, Message, TextContent
 from openhands.sdk.testing import TestLLM
@@ -122,6 +128,24 @@ async def test_goal_loop_outcomes(
         assert outcome is not None
         assert outcome.status == status
         assert outcome.iterations == iterations
+        goal_messages = [
+            event
+            for event in event_service.get_conversation()._state.events
+            if isinstance(event, MessageEvent) and event.source == "user"
+        ]
+        assert goal_messages
+        assert all(
+            event.authorship_origin is AuthorshipOrigin.FRAMEWORK
+            for event in goal_messages
+        )
+        assert all(
+            event.semantic_purpose is SemanticPurpose.CONTROL_FEEDBACK
+            for event in goal_messages
+        )
+        assert all(
+            event.agent_response_finality is AgentResponseFinality.NOT_APPLICABLE
+            for event in goal_messages
+        )
     finally:
         await event_service.close()
 

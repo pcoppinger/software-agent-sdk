@@ -66,7 +66,7 @@ from openhands.sdk.credential import (
     CredentialBindingError,
     VersionedCredentialBinding,
 )
-from openhands.sdk.event import MessageEvent
+from openhands.sdk.event import AuthorshipOrigin, MessageEvent
 from openhands.sdk.event.conversation_state import ConversationStateUpdateEvent
 from openhands.sdk.git.exceptions import GitCommandError, GitRepositoryError
 from openhands.sdk.git.utils import run_git_command, validate_git_repository
@@ -1874,7 +1874,15 @@ class ConversationService:
             message = Message(
                 role=initial_message.role, content=initial_message.content
             )
-            await event_service.send_message(message, True)
+            await event_service.send_message(
+                message,
+                True,
+                _authorship_origin=(
+                    AuthorshipOrigin.DELEGATED_AGENT
+                    if request.parent_conversation_id is not None
+                    else AuthorshipOrigin.CONVERSATION_INPUT
+                ),
+            )
 
         state = await event_service.get_state()
         conversation_info = _compose_conversation_info(event_service.stored, state)

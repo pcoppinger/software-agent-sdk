@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext, suppress
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from typing import cast
 from uuid import UUID, uuid4
@@ -67,7 +68,9 @@ from openhands.sdk.credential import (
 )
 from openhands.sdk.event import (
     AgentErrorEvent,
+    AuthorshipOrigin,
     ObservationBaseEvent,
+    SemanticPurpose,
     StreamingDeltaEvent,
 )
 from openhands.sdk.event.conversation_error import ConversationErrorEvent
@@ -743,7 +746,11 @@ class EventService:
         return results
 
     async def send_message(
-        self, message: Message, run: bool = False, _from_goal_loop: bool = False
+        self,
+        message: Message,
+        run: bool = False,
+        _from_goal_loop: bool = False,
+        _authorship_origin: AuthorshipOrigin | None = None,
     ):
         if not self._conversation:
             raise ValueError("inactive_service")
@@ -753,7 +760,24 @@ class EventService:
             await self.stop_goal_loop()
         explicit_interrupt_generation = self._explicit_interrupt_generation
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self._conversation.send_message, message)
+        send = partial(
+            self._conversation.send_message,
+            message,
+            _authorship_origin=(
+                _authorship_origin
+                or (
+                    AuthorshipOrigin.FRAMEWORK
+                    if _from_goal_loop
+                    else AuthorshipOrigin.CONVERSATION_INPUT
+                )
+            ),
+            _semantic_purpose=(
+                SemanticPurpose.CONTROL_FEEDBACK
+                if _from_goal_loop
+                else SemanticPurpose.TASK_INPUT
+            ),
+        )
+        await loop.run_in_executor(None, send)
         if run:
             if self._explicit_interrupt_generation != explicit_interrupt_generation:
                 return
@@ -1764,6 +1788,27 @@ class EventService:
             raise ValueError("inactive_service")
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._conversation.load_plugin, plugin_ref)
+
+    async def switch_profile(self, profile_name: str) -> None:
+        """Switch LLM profiles on the active conversation."""
+        conversation = self._conversation
+        if conversation is None:
+            raise ValueError("inactive_service")
+        await asyncio.to_thread(conversation.switch_profile, profile_name)
+
+    async def switch_llm(self, llm: LLM) -> None:
+        """Switch LLMs on the active conversation."""
+        conversation = self._conversation
+        if conversation is None:
+            raise ValueError("inactive_service")
+        await asyncio.to_thread(conversation.switch_llm, llm)
+
+    async def set_condenser_max_tokens(self, max_tokens: int) -> None:
+        """Set the active conversation's condenser threshold."""
+        conversation = self._conversation
+        if conversation is None:
+            raise ValueError("inactive_service")
+        await asyncio.to_thread(conversation.set_condenser_max_tokens, max_tokens)
 
     async def switch_acp_model(self, model: str) -> None:
         """Switch the model on an ACP conversation.

@@ -44,6 +44,8 @@ from openhands.sdk.credential import CredentialBindingError
 from openhands.sdk.event import (
     ActionEvent,
     AgentErrorEvent,
+    AgentResponseFinality,
+    AuthorshipOrigin,
     CondensationRequest,
     Event,
     EventID,
@@ -51,6 +53,7 @@ from openhands.sdk.event import (
     MessageEvent,
     ObservationEvent,
     PauseEvent,
+    SemanticPurpose,
     UserRejectObservation,
 )
 from openhands.sdk.event.conversation_error import ConversationErrorEvent
@@ -750,6 +753,9 @@ class LocalConversation(BaseConversation):
                 MessageEvent(
                     source="environment",
                     llm_message=Message(role="user", content=[TextContent(text=nudge)]),
+                    authorship_origin=AuthorshipOrigin.FRAMEWORK,
+                    semantic_purpose=SemanticPurpose.CONTROL_FEEDBACK,
+                    agent_response_finality=(AgentResponseFinality.NOT_APPLICABLE),
                 )
             )
             return False
@@ -1821,7 +1827,14 @@ class LocalConversation(BaseConversation):
             }
 
     @observe(name="conversation.send_message")
-    def send_message(self, message: str | Message, sender: str | None = None) -> None:
+    def send_message(
+        self,
+        message: str | Message,
+        sender: str | None = None,
+        *,
+        _authorship_origin: AuthorshipOrigin = (AuthorshipOrigin.CONVERSATION_INPUT),
+        _semantic_purpose: SemanticPurpose = SemanticPurpose.TASK_INPUT,
+    ) -> None:
         """Send a message to the agent.
 
         Args:
@@ -1831,6 +1844,10 @@ class LocalConversation(BaseConversation):
                    message origin in multi-agent scenarios. For example, when
                    one agent delegates to another, the sender can be set to
                    identify which agent is sending the message.
+            _authorship_origin: Framework-owned internal discriminator. External
+                    conversation input uses the default; framework-generated
+                    feedback must override it explicitly.
+            _semantic_purpose: Framework-owned internal purpose discriminator.
         """
         # ACPAgent startup can take much longer than a normal send_message()
         # round-trip because it launches and initializes a subprocess-backed
@@ -1882,6 +1899,9 @@ class LocalConversation(BaseConversation):
                 activated_skills=activated_skill_names,
                 extended_content=extended_content,
                 sender=sender,
+                authorship_origin=_authorship_origin,
+                semantic_purpose=_semantic_purpose,
+                agent_response_finality=AgentResponseFinality.NOT_APPLICABLE,
             )
             self._on_event(user_msg_event)
 
@@ -1976,6 +1996,13 @@ class LocalConversation(BaseConversation):
                                         llm_message=Message(
                                             role="user",
                                             content=[TextContent(text=prefixed)],
+                                        ),
+                                        authorship_origin=AuthorshipOrigin.FRAMEWORK,
+                                        semantic_purpose=(
+                                            SemanticPurpose.CONTROL_FEEDBACK
+                                        ),
+                                        agent_response_finality=(
+                                            AgentResponseFinality.NOT_APPLICABLE
                                         ),
                                     )
                                     self._on_event(feedback_msg)
@@ -2191,6 +2218,13 @@ class LocalConversation(BaseConversation):
                                         llm_message=Message(
                                             role="user",
                                             content=[TextContent(text=prefixed)],
+                                        ),
+                                        authorship_origin=AuthorshipOrigin.FRAMEWORK,
+                                        semantic_purpose=(
+                                            SemanticPurpose.CONTROL_FEEDBACK
+                                        ),
+                                        agent_response_finality=(
+                                            AgentResponseFinality.NOT_APPLICABLE
                                         ),
                                     )
                                     self._on_event(feedback_msg)

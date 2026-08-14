@@ -8,11 +8,14 @@ from pydantic import ValidationError
 from openhands.sdk.event import (
     ActionEvent,
     AgentErrorEvent,
+    AgentResponseFinality,
+    AuthorshipOrigin,
     Condensation,
     CondensationRequest,
     Event,
     MessageEvent,
     ObservationEvent,
+    SemanticPurpose,
     SystemPromptEvent,
 )
 from openhands.sdk.llm import (
@@ -128,11 +131,35 @@ def test_message_event_serialization() -> None:
         role="user",
         content=[TextContent(text="Hello, world!")],
     )
-    event = MessageEvent(source="user", llm_message=llm_message)
+    event = MessageEvent(
+        source="user",
+        llm_message=llm_message,
+        authorship_origin=AuthorshipOrigin.CONVERSATION_INPUT,
+        semantic_purpose=SemanticPurpose.TASK_INPUT,
+        agent_response_finality=AgentResponseFinality.NOT_APPLICABLE,
+    )
 
     json_data = event.model_dump_json()
     deserialized = MessageEvent.model_validate_json(json_data)
     assert deserialized == event
+
+
+def test_legacy_message_event_defaults_semantic_metadata_to_unknown() -> None:
+    """Persisted events from before the additive contract remain readable."""
+    raw = {
+        "kind": "MessageEvent",
+        "source": "user",
+        "llm_message": {
+            "role": "user",
+            "content": [{"text": "legacy"}],
+        },
+    }
+
+    event = MessageEvent.model_validate(raw)
+
+    assert event.authorship_origin is AuthorshipOrigin.UNKNOWN
+    assert event.semantic_purpose is SemanticPurpose.UNKNOWN
+    assert event.agent_response_finality is AgentResponseFinality.UNKNOWN
 
 
 def test_agent_error_event_serialization() -> None:

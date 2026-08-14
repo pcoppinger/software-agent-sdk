@@ -13,7 +13,12 @@ from typing import TYPE_CHECKING, Any
 
 from openhands.sdk.agent.stream_context import StreamContext
 from openhands.sdk.conversation.state import ConversationExecutionStatus
-from openhands.sdk.event import MessageEvent
+from openhands.sdk.event import (
+    AgentResponseFinality,
+    AuthorshipOrigin,
+    MessageEvent,
+    SemanticPurpose,
+)
 from openhands.sdk.llm import LLMResponse, Message, TextContent
 from openhands.sdk.logger import get_logger
 
@@ -255,7 +260,14 @@ class ResponseDispatchMixin:
         stream: StreamContext | None = None,
     ) -> None:
         """Handle LLM response with text content — finishes conversation."""
-        self._emit_message_event(message, llm_response, conversation, on_event, stream)
+        self._emit_message_event(
+            message,
+            llm_response,
+            conversation,
+            on_event,
+            stream,
+            finality=AgentResponseFinality.FINAL,
+        )
         self._maybe_emit_vllm_tokens(llm_response, on_event)
         logger.debug("LLM produced a message response - awaits user input")
         state.execution_status = ConversationExecutionStatus.FINISHED
@@ -279,7 +291,14 @@ class ResponseDispatchMixin:
         """
         if response_type is LLMResponseType.EMPTY:
             logger.warning("LLM produced empty response - continuing agent loop")
-        self._emit_message_event(message, llm_response, conversation, on_event, stream)
+        self._emit_message_event(
+            message,
+            llm_response,
+            conversation,
+            on_event,
+            stream,
+            finality=AgentResponseFinality.INTERMEDIATE,
+        )
         self._maybe_emit_vllm_tokens(llm_response, on_event)
         self._send_corrective_nudge(on_event)
 
@@ -290,6 +309,8 @@ class ResponseDispatchMixin:
         conversation: LocalConversation,
         on_event: ConversationCallbackType,
         stream: StreamContext | None = None,
+        *,
+        finality: AgentResponseFinality,
     ) -> MessageEvent:
         """Create and emit a MessageEvent, running critic if configured.
 
@@ -304,6 +325,9 @@ class ResponseDispatchMixin:
             source="agent",
             llm_message=self._mask_secrets(message, conversation),
             llm_response_id=llm_response.id,
+            authorship_origin=AuthorshipOrigin.AGENT_MODEL,
+            semantic_purpose=SemanticPurpose.AGENT_RESPONSE,
+            agent_response_finality=finality,
         )
         if self.critic is not None and self.critic.mode == "finish_and_message":
             critic_result = self._evaluate_with_critic(conversation, msg_event)
@@ -364,5 +388,8 @@ class ResponseDispatchMixin:
                     )
                 ],
             ),
+            authorship_origin=AuthorshipOrigin.FRAMEWORK,
+            semantic_purpose=SemanticPurpose.CONTROL_FEEDBACK,
+            agent_response_finality=AgentResponseFinality.NOT_APPLICABLE,
         )
         on_event(nudge)
