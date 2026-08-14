@@ -1,5 +1,6 @@
 import copy
 from collections.abc import Sequence
+from enum import StrEnum
 from typing import ClassVar
 
 from pydantic import ConfigDict, Field
@@ -22,6 +23,35 @@ from openhands.sdk.llm import (
 )
 
 
+class AuthorshipOrigin(StrEnum):
+    """Framework-observed origin of a persisted message's authored content."""
+
+    UNKNOWN = "unknown"
+    CONVERSATION_INPUT = "conversation_input"
+    DELEGATED_AGENT = "delegated_agent"
+    AGENT_MODEL = "agent_model"
+    FRAMEWORK = "framework"
+
+
+class SemanticPurpose(StrEnum):
+    """Framework-assigned semantic purpose of a persisted message."""
+
+    UNKNOWN = "unknown"
+    TASK_INPUT = "task_input"
+    AGENT_RESPONSE = "agent_response"
+    CONTROL_FEEDBACK = "control_feedback"
+    ERROR_NOTICE = "error_notice"
+
+
+class AgentResponseFinality(StrEnum):
+    """Whether an agent response is final for its current conversation turn."""
+
+    UNKNOWN = "unknown"
+    NOT_APPLICABLE = "not_applicable"
+    INTERMEDIATE = "intermediate"
+    FINAL = "final"
+
+
 class MessageEvent(LLMConvertibleEvent):
     """Message from either agent or user.
 
@@ -30,6 +60,27 @@ class MessageEvent(LLMConvertibleEvent):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
 
     source: SourceType
+    authorship_origin: AuthorshipOrigin = Field(
+        default=AuthorshipOrigin.UNKNOWN,
+        description=(
+            "Framework-authored content-origin discriminator. Unknown preserves "
+            "backward compatibility and must not be inferred from source or role."
+        ),
+    )
+    semantic_purpose: SemanticPurpose = Field(
+        default=SemanticPurpose.UNKNOWN,
+        description=(
+            "Framework-authored semantic-purpose discriminator. Unknown must not "
+            "be inferred from message text, source, sender, or role."
+        ),
+    )
+    agent_response_finality: AgentResponseFinality = Field(
+        default=AgentResponseFinality.UNKNOWN,
+        description=(
+            "Framework-authored turn-finality discriminator for agent responses. "
+            "Unknown preserves legacy persisted events."
+        ),
+    )
     llm_message: Message = Field(
         ..., description="The exact LLM message for this message event"
     )

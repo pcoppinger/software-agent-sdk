@@ -39,9 +39,12 @@ from openhands.sdk.conversation.state import ConversationExecutionStatus
 from openhands.sdk.event import (
     ActionEvent,
     AgentErrorEvent,
+    AgentResponseFinality,
+    AuthorshipOrigin,
     Event,
     MessageEvent,
     ObservationEvent,
+    SemanticPurpose,
     SystemPromptEvent,
     TokenEvent,
     UserRejectObservation,
@@ -345,6 +348,9 @@ class _ActionBatch:
                         role="user",
                         content=[TextContent(text=followup)],
                     ),
+                    authorship_origin=AuthorshipOrigin.FRAMEWORK,
+                    semantic_purpose=SemanticPurpose.CONTROL_FEEDBACK,
+                    agent_response_finality=(AgentResponseFinality.NOT_APPLICABLE),
                 )
             )
         else:
@@ -678,6 +684,9 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
                     MessageEvent(
                         source="agent",
                         llm_message=_non_multimodal_image_message(self.llm.model),
+                        authorship_origin=AuthorshipOrigin.FRAMEWORK,
+                        semantic_purpose=SemanticPurpose.ERROR_NOTICE,
+                        agent_response_finality=(AgentResponseFinality.NOT_APPLICABLE),
                     )
                 )
                 state.execution_status = ConversationExecutionStatus.FINISHED
@@ -704,6 +713,9 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
                     role="user",
                     content=[TextContent(text=str(e))],
                 ),
+                authorship_origin=AuthorshipOrigin.FRAMEWORK,
+                semantic_purpose=SemanticPurpose.CONTROL_FEEDBACK,
+                agent_response_finality=AgentResponseFinality.NOT_APPLICABLE,
             )
             on_event(error_message)
             return
@@ -726,6 +738,9 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
                             )
                         ],
                     ),
+                    authorship_origin=AuthorshipOrigin.FRAMEWORK,
+                    semantic_purpose=SemanticPurpose.CONTROL_FEEDBACK,
+                    agent_response_finality=(AgentResponseFinality.NOT_APPLICABLE),
                 )
             )
             return
@@ -866,6 +881,9 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
                     MessageEvent(
                         source="agent",
                         llm_message=_non_multimodal_image_message(self.llm.model),
+                        authorship_origin=AuthorshipOrigin.FRAMEWORK,
+                        semantic_purpose=SemanticPurpose.ERROR_NOTICE,
+                        agent_response_finality=(AgentResponseFinality.NOT_APPLICABLE),
                     )
                 )
                 state.execution_status = ConversationExecutionStatus.FINISHED
@@ -896,6 +914,9 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
                     role="user",
                     content=[TextContent(text=str(e))],
                 ),
+                authorship_origin=AuthorshipOrigin.FRAMEWORK,
+                semantic_purpose=SemanticPurpose.CONTROL_FEEDBACK,
+                agent_response_finality=AgentResponseFinality.NOT_APPLICABLE,
             )
             on_event(error_message)
             return
@@ -918,6 +939,9 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
                             )
                         ],
                     ),
+                    authorship_origin=AuthorshipOrigin.FRAMEWORK,
+                    semantic_purpose=SemanticPurpose.CONTROL_FEEDBACK,
+                    agent_response_finality=(AgentResponseFinality.NOT_APPLICABLE),
                 )
             )
             return

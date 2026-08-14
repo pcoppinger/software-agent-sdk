@@ -3,7 +3,14 @@
 import pytest
 
 from openhands.sdk.conversation.state import ConversationState
-from openhands.sdk.event import ActionEvent, HookExecutionEvent, MessageEvent
+from openhands.sdk.event import (
+    ActionEvent,
+    AgentResponseFinality,
+    AuthorshipOrigin,
+    HookExecutionEvent,
+    MessageEvent,
+    SemanticPurpose,
+)
 from openhands.sdk.hooks.config import HookConfig
 from openhands.sdk.hooks.conversation_hooks import (
     HookEventProcessor,
@@ -699,6 +706,9 @@ class TestAdditionalContextInjection:
                 content=[TextContent(text="Hello")],
             ),
             extended_content=[TextContent(text="Existing context")],
+            authorship_origin=AuthorshipOrigin.CONVERSATION_INPUT,
+            semantic_purpose=SemanticPurpose.TASK_INPUT,
+            agent_response_finality=AgentResponseFinality.NOT_APPLICABLE,
         )
 
         processor.on_event(original_event)
@@ -713,6 +723,12 @@ class TestAdditionalContextInjection:
         content_texts = [c.text for c in processed_event.extended_content]
         assert "Existing context" in content_texts
         assert "Hook context" in content_texts
+        assert processed_event.authorship_origin is AuthorshipOrigin.CONVERSATION_INPUT
+        assert processed_event.semantic_purpose is SemanticPurpose.TASK_INPUT
+        assert (
+            processed_event.agent_response_finality
+            is AgentResponseFinality.NOT_APPLICABLE
+        )
 
 
 class TestStopHookIntegration:

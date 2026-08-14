@@ -10,7 +10,15 @@ from openhands.sdk.agent.response_dispatch import LLMResponseType, classify_resp
 from openhands.sdk.conversation import Conversation, LocalConversation
 from openhands.sdk.conversation.state import ConversationExecutionStatus
 from openhands.sdk.conversation.stuck_detector import StuckDetector
-from openhands.sdk.event import ActionEvent, Event, MessageEvent, ObservationEvent
+from openhands.sdk.event import (
+    ActionEvent,
+    AgentResponseFinality,
+    AuthorshipOrigin,
+    Event,
+    MessageEvent,
+    ObservationEvent,
+    SemanticPurpose,
+)
 from openhands.sdk.llm import (
     LLM,
     LLMResponse,
@@ -285,6 +293,9 @@ def test_content_response_sets_finished():
     assert convo.state.execution_status == ConversationExecutionStatus.FINISHED
     assert len(msg_events) == 1
     assert msg_events[0].source == "agent"
+    assert msg_events[0].authorship_origin is AuthorshipOrigin.AGENT_MODEL
+    assert msg_events[0].semantic_purpose is SemanticPurpose.AGENT_RESPONSE
+    assert msg_events[0].agent_response_finality is AgentResponseFinality.FINAL
 
 
 def test_empty_response_sends_nudge():
@@ -296,7 +307,13 @@ def test_empty_response_sends_nudge():
     assert convo.state.execution_status != ConversationExecutionStatus.FINISHED
     assert len(msg_events) == 2
     assert msg_events[0].source == "agent"
+    assert msg_events[0].authorship_origin is AuthorshipOrigin.AGENT_MODEL
+    assert msg_events[0].semantic_purpose is SemanticPurpose.AGENT_RESPONSE
+    assert msg_events[0].agent_response_finality is AgentResponseFinality.INTERMEDIATE
     assert msg_events[1].source == "environment"
+    assert msg_events[1].authorship_origin is AuthorshipOrigin.FRAMEWORK
+    assert msg_events[1].semantic_purpose is SemanticPurpose.CONTROL_FEEDBACK
+    assert msg_events[1].agent_response_finality is AgentResponseFinality.NOT_APPLICABLE
     assert msg_events[1].llm_message.role == "user"
     nudge_content = msg_events[1].llm_message.content[0]
     assert isinstance(nudge_content, TextContent)

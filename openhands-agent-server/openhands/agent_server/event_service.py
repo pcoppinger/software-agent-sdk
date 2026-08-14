@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext, suppress
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from typing import cast
 from uuid import UUID, uuid4
@@ -61,7 +62,9 @@ from openhands.sdk.credential import (
 )
 from openhands.sdk.event import (
     AgentErrorEvent,
+    AuthorshipOrigin,
     ObservationBaseEvent,
+    SemanticPurpose,
     StreamingDeltaEvent,
 )
 from openhands.sdk.event.conversation_state import ConversationStateUpdateEvent
@@ -700,7 +703,11 @@ class EventService:
         return results
 
     async def send_message(
-        self, message: Message, run: bool = False, _from_goal_loop: bool = False
+        self,
+        message: Message,
+        run: bool = False,
+        _from_goal_loop: bool = False,
+        _authorship_origin: AuthorshipOrigin | None = None,
     ):
         if not self._conversation:
             raise ValueError("inactive_service")
@@ -710,7 +717,24 @@ class EventService:
             await self.stop_goal_loop()
         explicit_interrupt_generation = self._explicit_interrupt_generation
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self._conversation.send_message, message)
+        send = partial(
+            self._conversation.send_message,
+            message,
+            _authorship_origin=(
+                _authorship_origin
+                or (
+                    AuthorshipOrigin.FRAMEWORK
+                    if _from_goal_loop
+                    else AuthorshipOrigin.CONVERSATION_INPUT
+                )
+            ),
+            _semantic_purpose=(
+                SemanticPurpose.CONTROL_FEEDBACK
+                if _from_goal_loop
+                else SemanticPurpose.TASK_INPUT
+            ),
+        )
+        await loop.run_in_executor(None, send)
         if run:
             if self._explicit_interrupt_generation != explicit_interrupt_generation:
                 return
