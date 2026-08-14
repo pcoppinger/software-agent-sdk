@@ -42,8 +42,10 @@ from openhands.sdk.event import AgentErrorEvent, Event
 from openhands.sdk.event.conversation_state import ConversationStateUpdateEvent
 from openhands.sdk.event.llm_convertible import (
     ActionEvent,
+    AuthorshipOrigin,
     MessageEvent,
     ObservationEvent,
+    SemanticPurpose,
 )
 from openhands.sdk.io.local import LocalFileStore
 from openhands.sdk.io.memory import InMemoryFileStore
@@ -800,6 +802,16 @@ class TestEventServiceSendMessage:
         """Helper to create a mock coroutine for run_in_executor."""
         return None
 
+    def _assert_task_input_submission(
+        self, submitted, send_message, message: Message
+    ) -> None:
+        assert submitted.func is send_message
+        assert submitted.args == (message,)
+        assert submitted.keywords == {
+            "_authorship_origin": AuthorshipOrigin.CONVERSATION_INPUT,
+            "_semantic_purpose": SemanticPurpose.TASK_INPUT,
+        }
+
     @pytest.mark.asyncio
     async def test_send_message_inactive_service(self, event_service):
         """Test that send_message raises ValueError when service is inactive."""
@@ -836,8 +848,10 @@ class TestEventServiceSendMessage:
             await event_service.send_message(message)
 
             # Verify send_message was called via executor
-            mock_loop.run_in_executor.assert_any_call(
-                None, conversation.send_message, message
+            self._assert_task_input_submission(
+                mock_loop.run_in_executor.call_args.args[1],
+                conversation.send_message,
+                message,
             )
             # Verify run was called via executor since run=True and agent is not running
             assert (
@@ -866,8 +880,11 @@ class TestEventServiceSendMessage:
             await event_service.send_message(message, run=False)
 
             # Verify send_message was called via executor
-            mock_loop.run_in_executor.assert_called_once_with(
-                None, conversation.send_message, message
+            assert mock_loop.run_in_executor.call_args.args[0] is None
+            self._assert_task_input_submission(
+                mock_loop.run_in_executor.call_args.args[1],
+                conversation.send_message,
+                message,
             )
             # Verify run was NOT called since run=False
             assert mock_loop.run_in_executor.call_count == 1  # Only send_message call
@@ -896,7 +913,11 @@ class TestEventServiceSendMessage:
         # Call send_message with run=True — should silently skip run
         await event_service.send_message(message, run=True)
 
-        conversation.send_message.assert_called_once_with(message)
+        conversation.send_message.assert_called_once_with(
+            message,
+            _authorship_origin=AuthorshipOrigin.CONVERSATION_INPUT,
+            _semantic_purpose=SemanticPurpose.TASK_INPUT,
+        )
         # run() delegates to self.run() which checks status under lock
         # and raises ValueError (caught by send_message) — so
         # conversation.run is never invoked.
@@ -929,7 +950,11 @@ class TestEventServiceSendMessage:
         await event_service.send_message(message, run=True)
 
         # Verify send_message was called
-        conversation.send_message.assert_called_once_with(message)
+        conversation.send_message.assert_called_once_with(
+            message,
+            _authorship_origin=AuthorshipOrigin.CONVERSATION_INPUT,
+            _semantic_purpose=SemanticPurpose.TASK_INPUT,
+        )
 
         # send_message delegates to self.run() which creates a background task
         assert event_service._run_task is not None
@@ -1031,8 +1056,8 @@ class TestEventServiceSendMessage:
         event_service._run_task = asyncio.create_task(release_run.wait())
         original_send_message = conversation.send_message
 
-        def send_and_mark_active_prompt(message):
-            original_send_message(message)
+        def send_and_mark_active_prompt(message, **kwargs):
+            original_send_message(message, **kwargs)
             conversation.state.execution_status = ConversationExecutionStatus.RUNNING
             conversation.state.agent_state = {
                 **conversation.state.agent_state,
@@ -1253,7 +1278,11 @@ class TestEventServiceSendMessage:
             )
 
         # Verify send_message was still called
-        conversation.send_message.assert_called_once_with(message)
+        conversation.send_message.assert_called_once_with(
+            message,
+            _authorship_origin=AuthorshipOrigin.CONVERSATION_INPUT,
+            _semantic_purpose=SemanticPurpose.TASK_INPUT,
+        )
 
         # Verify run was called (and raised the exception)
         conversation.run.assert_called_once()
@@ -1331,22 +1360,28 @@ class TestEventServiceSendMessage:
             # Test with user message (run=False to avoid state checking)
             user_message = Message(role="user", content=[])
             await event_service.send_message(user_message, run=False)
-            mock_loop.run_in_executor.assert_any_call(
-                None, conversation.send_message, user_message
+            self._assert_task_input_submission(
+                mock_loop.run_in_executor.call_args.args[1],
+                conversation.send_message,
+                user_message,
             )
 
             # Test with assistant message
             assistant_message = Message(role="assistant", content=[])
             await event_service.send_message(assistant_message, run=False)
-            mock_loop.run_in_executor.assert_any_call(
-                None, conversation.send_message, assistant_message
+            self._assert_task_input_submission(
+                mock_loop.run_in_executor.call_args.args[1],
+                conversation.send_message,
+                assistant_message,
             )
 
             # Test with system message
             system_message = Message(role="system", content=[])
             await event_service.send_message(system_message, run=False)
-            mock_loop.run_in_executor.assert_any_call(
-                None, conversation.send_message, system_message
+            self._assert_task_input_submission(
+                mock_loop.run_in_executor.call_args.args[1],
+                conversation.send_message,
+                system_message,
             )
 
     @pytest.mark.asyncio

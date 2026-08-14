@@ -305,6 +305,9 @@ class HookEventProcessor:
                 activated_skills=event.activated_skills,
                 extended_content=new_extended_content,
                 sender=event.sender,
+                authorship_origin=event.authorship_origin,
+                semantic_purpose=event.semantic_purpose,
+                agent_response_finality=event.agent_response_finality,
             )
 
         return event

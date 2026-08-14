@@ -11,10 +11,13 @@ from openhands.sdk.event.llm_completion_log import LLMCompletionLogEvent
 from openhands.sdk.event.llm_convertible import (
     ActionEvent,
     AgentErrorEvent,
+    AgentResponseFinality,
+    AuthorshipOrigin,
     MessageEvent,
     ObservationBaseEvent,
     ObservationEvent,
     RejectionSource,
+    SemanticPurpose,
     SystemPromptEvent,
     UserRejectObservation,
 )
@@ -38,6 +41,9 @@ __all__ = [
     "ObservationEvent",
     "ObservationBaseEvent",
     "MessageEvent",
+    "AuthorshipOrigin",
+    "SemanticPurpose",
+    "AgentResponseFinality",
     "AgentErrorEvent",
     "UserRejectObservation",
     "RejectionSource",

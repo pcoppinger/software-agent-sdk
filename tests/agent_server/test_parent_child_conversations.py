@@ -14,8 +14,16 @@ from openhands.agent_server.conversation_service import (
     InvalidParentConversation,
 )
 from openhands.agent_server.dependencies import get_conversation_service
-from openhands.agent_server.models import StartConversationRequest
+from openhands.agent_server.models import SendMessageRequest, StartConversationRequest
 from openhands.sdk import LLM, Agent
+from openhands.sdk.event import (
+    AgentResponseFinality,
+    AuthorshipOrigin,
+    MessageEvent,
+    SemanticPurpose,
+)
+from openhands.sdk.llm import Message, TextContent
+from openhands.sdk.testing import TestLLM
 from openhands.sdk.workspace import LocalWorkspace
 
 
@@ -52,6 +60,55 @@ async def test_start_conversation_records_parent(tmp_path, workspace_dir):
         assert is_new
         assert child_info.parent_conversation_id == parent_info.id
         assert child_info.sub_conversation_ids == []
+
+
+@pytest.mark.asyncio
+async def test_child_initial_message_is_server_labeled_as_delegated_agent(
+    tmp_path, workspace_dir
+):
+    async with ConversationService(
+        conversations_dir=tmp_path / "conversations"
+    ) as service:
+        parent_info, _ = await service.start_conversation(_start_request(workspace_dir))
+        request = _start_request(
+            workspace_dir, parent_conversation_id=parent_info.id
+        ).model_copy(
+            update={
+                "agent": Agent(
+                    llm=TestLLM.from_messages(
+                        [
+                            Message(
+                                role="assistant",
+                                content=[TextContent(text="child complete")],
+                            )
+                        ],
+                        usage_id="child-agent",
+                    ),
+                    tools=[],
+                ),
+                "initial_message": SendMessageRequest(
+                    role="user",
+                    content=[TextContent(text="delegated task")],
+                ),
+            }
+        )
+
+        child_info, _ = await service.start_conversation(request)
+        child_service = await service.get_event_service(child_info.id)
+        assert child_service is not None
+        user_events = [
+            event
+            for event in (await child_service.get_state()).events
+            if isinstance(event, MessageEvent) and event.source == "user"
+        ]
+
+        assert len(user_events) == 1
+        assert user_events[0].authorship_origin is AuthorshipOrigin.DELEGATED_AGENT
+        assert user_events[0].semantic_purpose is SemanticPurpose.TASK_INPUT
+        assert (
+            user_events[0].agent_response_finality
+            is AgentResponseFinality.NOT_APPLICABLE
+        )
 
 
 @pytest.mark.asyncio

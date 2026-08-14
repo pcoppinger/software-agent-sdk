@@ -19,7 +19,13 @@ from openhands.sdk.conversation.types import (
     ConversationCallbackType,
     ConversationTokenCallbackType,
 )
-from openhands.sdk.event.llm_convertible import MessageEvent, SystemPromptEvent
+from openhands.sdk.event import (
+    AgentResponseFinality,
+    AuthorshipOrigin,
+    MessageEvent,
+    SemanticPurpose,
+    SystemPromptEvent,
+)
 from openhands.sdk.llm import LLM, Message, TextContent
 
 
@@ -67,6 +73,9 @@ def test_send_message_with_string_creates_correct_message():
     user_event = conversation.state.events[-1]
     assert isinstance(user_event, MessageEvent)
     assert user_event.source == "user"
+    assert user_event.authorship_origin is AuthorshipOrigin.CONVERSATION_INPUT
+    assert user_event.semantic_purpose is SemanticPurpose.TASK_INPUT
+    assert user_event.agent_response_finality is AgentResponseFinality.NOT_APPLICABLE
 
     # Check the message structure
     message = user_event.llm_message
