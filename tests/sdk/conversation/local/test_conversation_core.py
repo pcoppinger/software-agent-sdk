@@ -68,8 +68,9 @@ def test_set_condenser_max_tokens_persists_agent_update():
         conv.set_condenser_max_tokens(65_536)
 
         assert conv.agent.condenser.max_tokens == 65_536
-        assert conv.state.agent.condenser is not None
-        assert conv.state.agent.condenser.max_tokens == 65_536
+        persisted_condenser = conv.state.agent.condenser
+        assert isinstance(persisted_condenser, LLMSummarizingCondenser)
+        assert persisted_condenser.max_tokens == 65_536
 
 
 def test_conversation_event_log_functionality():

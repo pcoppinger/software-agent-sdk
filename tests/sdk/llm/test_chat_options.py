@@ -143,8 +143,7 @@ def test_seed_is_forwarded_and_explicit_call_value_wins():
 
     assert select_chat_options(llm, user_kwargs={}, has_tools=True)["seed"] == 8675309
     assert (
-        select_chat_options(llm, user_kwargs={"seed": 42}, has_tools=True)["seed"]
-        == 42
+        select_chat_options(llm, user_kwargs={"seed": 42}, has_tools=True)["seed"] == 42
     )
 
 
