@@ -1189,6 +1189,7 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
                 requested_tool_name,
                 arguments,
                 self.tools_map.keys(),
+                file_editor_default_path=conversation.workspace.working_dir,
             )
 
             tool = self.tools_map.get(tool_name, None)

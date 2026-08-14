@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from httpx import ConnectTimeout, Request
 from joserfc import jwt as joserfc_jwt
 from joserfc.jwk import KeySet, RSAKey
 
@@ -339,6 +340,37 @@ async def test_poll_device_code_retries_pending_then_succeeds():
 
 
 @pytest.mark.asyncio
+async def test_poll_device_code_retries_transient_network_error():
+    """A temporary polling timeout must not abort the device login flow."""
+    fake_client = _FakeAsyncClient(
+        [
+            ConnectTimeout("temporary timeout", request=Request("POST", ISSUER)),
+            _response(
+                payload={
+                    "authorization_code": "auth-code",
+                    "code_verifier": "verifier",
+                }
+            ),
+        ]
+    )
+    device_code = DeviceCode(
+        verification_url=f"{ISSUER}/codex/device",
+        user_code="ABCD-1234",
+        device_auth_id="device-auth-123",
+        interval=1,
+    )
+
+    with (
+        patch("openhands.sdk.llm.auth.openai.AsyncClient", return_value=fake_client),
+        patch("openhands.sdk.llm.auth.openai.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        result = await _poll_device_code(device_code)
+
+    assert result["authorization_code"] == "auth-code"
+    assert len(fake_client.posts) == 2
+
+
+@pytest.mark.asyncio
 async def test_openai_subscription_auth_login_device_code(tmp_path):
     """Test device-code login stores OAuth credentials."""
     store = CredentialStore(credentials_dir=tmp_path)
@@ -448,6 +480,38 @@ async def test_openai_subscription_auth_refresh_if_needed_expired_creds(tmp_path
         assert result is not None
         assert result.access_token == "new_access"
         mock_refresh.assert_called_once_with("test_refresh")
+
+
+@pytest.mark.asyncio
+async def test_openai_subscription_auth_force_refreshes_unexpired_creds(tmp_path):
+    """A provider-rejected token refreshes despite future local expiry metadata."""
+    store = CredentialStore(credentials_dir=tmp_path)
+    auth = OpenAISubscriptionAuth(credential_store=store)
+    store.save(
+        OAuthCredentials(
+            vendor="openai",
+            access_token="server_rejected_access",
+            refresh_token="test_refresh",
+            expires_at=int(time.time() * 1000) + 3600_000,
+        )
+    )
+
+    with patch(
+        "openhands.sdk.llm.auth.openai._refresh_access_token",
+        new_callable=AsyncMock,
+    ) as mock_refresh:
+        mock_refresh.return_value = {
+            "access_token": "new_access",
+            "refresh_token": "new_refresh",
+            "expires_in": 3600,
+        }
+
+        result = await auth.force_refresh()
+
+    assert result is not None
+    assert result.access_token == "new_access"
+    assert store.get("openai") == result
+    mock_refresh.assert_called_once_with("test_refresh")
 
 
 # =========================================================================

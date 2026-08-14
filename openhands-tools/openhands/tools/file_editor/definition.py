@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import Field, PrivateAttr
+from pydantic import Field, PrivateAttr, field_validator
 
 
 if TYPE_CHECKING:
@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
 from rich.text import Text
 
+from openhands.sdk.logger import get_logger
 from openhands.sdk.tool import (
     Action,
     DeclaredResources,
@@ -24,6 +25,8 @@ from openhands.tools.file_editor.utils.diff import visualize_diff
 
 
 CommandLiteral = Literal["view", "create", "str_replace", "insert", "undo_edit"]
+_COMMANDS = frozenset({"view", "create", "str_replace", "insert", "undo_edit"})
+logger = get_logger(__name__)
 
 
 class FileEditorAction(Action):
@@ -64,6 +67,21 @@ class FileEditorAction(Action):
         "show lines 11 and 12. Indexing at 1 to start. Setting `[start_line, "
         "-1]` shows all lines from `start_line` to the end of the file.",
     )
+
+    @field_validator("command", mode="before")
+    @classmethod
+    def recover_trailing_angle_bracket(cls, value: object) -> object:
+        if not isinstance(value, str) or not value.endswith(">"):
+            return value
+
+        recovered = value[:-1]
+        if recovered not in _COMMANDS:
+            return value
+
+        logger.warning(
+            "Recovered malformed file_editor command %r as %r", value, recovered
+        )
+        return recovered
 
 
 class FileEditorObservation(Observation):

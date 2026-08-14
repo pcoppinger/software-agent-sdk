@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Self, get_args, get_origin
+from urllib.parse import urlparse
 
 from pydantic import (
     BaseModel,
@@ -124,6 +125,7 @@ from openhands.sdk.logger import ENV_LOG_DIR, get_logger
 
 
 _STATIC_MODIFY_PARAMS_ENV = "OPENHANDS_LITELLM_STATIC_MODIFY_PARAMS"
+_LOCAL_OLLAMA_MAX_CONCURRENCY_ENV = "OPENHANDS_LOCAL_OLLAMA_MAX_CONCURRENCY"
 
 
 def _read_static_modify_params() -> bool | None:
@@ -147,9 +149,38 @@ def _read_static_modify_params() -> bool | None:
     )
 
 
+def _read_local_ollama_max_concurrency() -> int | None:
+    raw = os.getenv(_LOCAL_OLLAMA_MAX_CONCURRENCY_ENV)
+    if raw is None:
+        return None
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(
+            f"{_LOCAL_OLLAMA_MAX_CONCURRENCY_ENV} must be a positive integer, "
+            f"got {raw!r}"
+        ) from exc
+    if value < 1:
+        raise ValueError(
+            f"{_LOCAL_OLLAMA_MAX_CONCURRENCY_ENV} must be a positive integer, "
+            f"got {raw!r}"
+        )
+    return value
+
+
 _STATIC_MODIFY_PARAMS = _read_static_modify_params()
 if _STATIC_MODIFY_PARAMS is not None:
     litellm.modify_params = _STATIC_MODIFY_PARAMS
+
+_LOCAL_OLLAMA_MAX_CONCURRENCY = _read_local_ollama_max_concurrency()
+_LOCAL_OLLAMA_CAPACITY = (
+    threading.BoundedSemaphore(_LOCAL_OLLAMA_MAX_CONCURRENCY)
+    if _LOCAL_OLLAMA_MAX_CONCURRENCY is not None
+    else None
+)
+_LOCAL_OLLAMA_CAPACITY_EXECUTOR = ThreadPoolExecutor(
+    thread_name_prefix="local-ollama-capacity"
+)
 
 
 logger = get_logger(__name__)
@@ -1024,6 +1055,69 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
             retry_listener=self._retry_listener_fn,
         )
 
+    def _is_recoverable_subscription_token_error(self, error: Exception) -> bool:
+        """Return whether the provider explicitly rejected the access token."""
+        if not self.is_subscription:
+            return False
+        message = str(error).lower()
+        return (
+            "token_expired" in message
+            or "token_invalidated" in message
+            or "authentication token is expired" in message
+        )
+
+    def _force_refresh_subscription_credentials(self) -> None:
+        from openhands.sdk.llm.auth.openai import OpenAISubscriptionAuth
+
+        auth = OpenAISubscriptionAuth(
+            credential_store=self._subscription_credential_store
+        )
+        credentials = auth.force_refresh_sync()
+        if credentials is None:
+            raise ValueError("OpenAI subscription login is required")
+        self._subscription_credentials = credentials
+
+    async def _aforce_refresh_subscription_credentials(self) -> None:
+        from openhands.sdk.llm.auth.openai import OpenAISubscriptionAuth
+
+        auth = OpenAISubscriptionAuth(
+            credential_store=self._subscription_credential_store
+        )
+        credentials = await auth.force_refresh()
+        if credentials is None:
+            raise ValueError("OpenAI subscription login is required")
+        self._subscription_credentials = credentials
+
+    def _run_with_subscription_token_recovery(self, call: Callable[[], Any]) -> Any:
+        """Retry one call after a provider-confirmed subscription token expiry."""
+        try:
+            return call()
+        except Exception as error:
+            if not self._is_recoverable_subscription_token_error(error):
+                raise
+            logger.warning(
+                "OpenAI rejected the subscription access token; "
+                "refreshing credentials and retrying once"
+            )
+            self._force_refresh_subscription_credentials()
+            return call()
+
+    async def _arun_with_subscription_token_recovery(
+        self, call: Callable[[], Any]
+    ) -> Any:
+        """Async counterpart to :meth:`_run_with_subscription_token_recovery`."""
+        try:
+            return await call()
+        except Exception as error:
+            if not self._is_recoverable_subscription_token_error(error):
+                raise
+            logger.warning(
+                "OpenAI rejected the subscription access token; "
+                "refreshing credentials and retrying once"
+            )
+            await self._aforce_refresh_subscription_credentials()
+            return await call()
+
     def _build_completion_result(self, resp: ModelResponse) -> LLMResponse:
         """Convert a raw :class:`ModelResponse` into an :class:`LLMResponse`."""
         first_choice = resp["choices"][0]
@@ -1574,7 +1668,9 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
             return resp
 
         try:
-            return self._build_completion_result(_one_attempt())
+            return self._build_completion_result(
+                self._run_with_subscription_token_recovery(_one_attempt)
+            )
         except Exception as e:
             # If the prompt cache content is too small for the provider's
             # minimum token threshold (e.g., Vertex AI requires ≥4096 tokens),
@@ -1670,7 +1766,9 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
             return resp
 
         try:
-            return self._build_completion_result(await _one_attempt())
+            return self._build_completion_result(
+                await self._arun_with_subscription_token_recovery(_one_attempt)
+            )
         except Exception as e:
             # If the prompt cache content is too small for the provider's
             # minimum token threshold (e.g., Vertex AI requires ≥4096 tokens),
@@ -1831,7 +1929,9 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
                     )
 
         try:
-            return self._build_responses_result(_one_attempt())
+            return self._build_responses_result(
+                self._run_with_subscription_token_recovery(_one_attempt)
+            )
         except Exception as e:
             # If the prompt cache content is too small for the provider's
             # minimum token threshold (e.g., Vertex AI requires ≥4096 tokens),
@@ -2007,7 +2107,9 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
                     )
 
         try:
-            return self._build_responses_result(await _one_attempt())
+            return self._build_responses_result(
+                await self._arun_with_subscription_token_recovery(_one_attempt)
+            )
         except Exception as e:
             # If the prompt cache content is too small for the provider's
             # minimum token threshold (e.g., Vertex AI requires ≥4096 tokens),
@@ -2174,9 +2276,10 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
         ``litellm.modify_params`` is GLOBAL, so it is guarded for thread-safety,
         and the noisy provider/litellm warnings are filtered out for the call.
         """
-        with self._litellm_modify_params_ctx(self.modify_params):
-            with self._suppress_transport_warnings():
-                yield
+        with self._local_ollama_capacity_ctx():
+            with self._litellm_modify_params_ctx(self.modify_params):
+                with self._suppress_transport_warnings():
+                    yield
 
     @asynccontextmanager
     async def _atransport_ctx(self):
@@ -2185,9 +2288,59 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
         See :meth:`_alitellm_modify_params_ctx` for why this must not use a
         plain blocking ``with`` statement around the lock.
         """
-        async with self._alitellm_modify_params_ctx(self.modify_params):
-            with self._suppress_transport_warnings():
-                yield
+        async with self._alocal_ollama_capacity_ctx():
+            async with self._alitellm_modify_params_ctx(self.modify_params):
+                with self._suppress_transport_warnings():
+                    yield
+
+    def _uses_local_ollama(self) -> bool:
+        provider_info = self._provider_info
+        if provider_info is None or provider_info.api_base is None:
+            return False
+        parsed = urlparse(provider_info.api_base)
+        return parsed.hostname in {"127.0.0.1", "localhost", "::1"} and (
+            provider_info.name in {"ollama", "ollama_chat"} or parsed.port == 11434
+        )
+
+    @contextmanager
+    def _local_ollama_capacity_ctx(self):
+        capacity = _LOCAL_OLLAMA_CAPACITY
+        if capacity is None or not self._uses_local_ollama():
+            yield
+            return
+
+        capacity.acquire()
+        try:
+            yield
+        finally:
+            capacity.release()
+
+    @asynccontextmanager
+    async def _alocal_ollama_capacity_ctx(self):
+        capacity = _LOCAL_OLLAMA_CAPACITY
+        if capacity is None or not self._uses_local_ollama():
+            yield
+            return
+
+        loop = asyncio.get_running_loop()
+        acquire = loop.run_in_executor(
+            _LOCAL_OLLAMA_CAPACITY_EXECUTOR,
+            capacity.acquire,
+        )
+        try:
+            await asyncio.shield(acquire)
+        except asyncio.CancelledError:
+
+            def _release_if_acquired(fut: asyncio.Future) -> None:
+                if not fut.cancelled() and fut.exception() is None:
+                    capacity.release()
+
+            acquire.add_done_callback(_release_if_acquired)
+            raise
+        try:
+            yield
+        finally:
+            capacity.release()
 
     def _prepare_transport_kwargs(
         self,
