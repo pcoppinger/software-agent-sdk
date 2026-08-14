@@ -299,13 +299,50 @@ def _normalize_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in normalized.items() if v is not None}
 
 
+def _recover_first_concatenated_json_object(
+    raw_arguments: str,
+) -> dict[str, Any] | None:
+    """Recover the first object when a model concatenates argument objects.
+
+    Some native-tool models occasionally merge two intended parallel calls into
+    one ``arguments`` string (``{...}{...}``). Execute only the first complete
+    object; the next model turn can issue the remaining call. Recovery is
+    deliberately rejected unless every trailing value is also a complete JSON
+    object, so arbitrary trailing text never becomes silently accepted.
+    """
+    decoder = json.JSONDecoder()
+    remaining = raw_arguments.lstrip()
+    objects: list[dict[str, Any]] = []
+
+    while remaining:
+        try:
+            value, end = decoder.raw_decode(remaining)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(value, dict):
+            return None
+        objects.append(value)
+        remaining = remaining[end:].lstrip()
+
+    if len(objects) < 2:
+        return None
+
+    logger.warning(
+        "Recovered %d concatenated tool argument objects; executing only the first",
+        len(objects),
+    )
+    return objects[0]
+
+
 def parse_tool_call_arguments(raw_arguments: str) -> dict[str, Any]:
-    """Parse tool call arguments, sanitizing raw control chars only on fallback."""
+    """Parse tool arguments with bounded recovery for known model defects."""
     try:
         parsed = json.loads(raw_arguments)
     except json.JSONDecodeError:
-        sanitized_args = sanitize_json_control_chars(raw_arguments)
-        parsed = json.loads(sanitized_args)
+        parsed = _recover_first_concatenated_json_object(raw_arguments)
+        if parsed is None:
+            sanitized_args = sanitize_json_control_chars(raw_arguments)
+            parsed = json.loads(sanitized_args)
 
     result = parsed if isinstance(parsed, dict) else {}
     return _normalize_arguments(result)
@@ -338,6 +375,34 @@ def _has_file_editor_hint(arguments: dict[str, Any]) -> bool:
         }
     )
     return bool(arguments and any(k in arguments for k in file_editor_hints))
+
+
+_FILE_EDITOR_VIEW_ARGUMENT_KEYS = frozenset(
+    {"command", "path", "view_range", "security_risk", "summary"}
+)
+
+_TERMINAL_ARGUMENT_KEYS = frozenset(
+    {"command", "is_input", "timeout", "reset", "security_risk", "summary"}
+)
+
+
+def _is_file_editor_view_payload(arguments: dict[str, Any]) -> bool:
+    path = arguments.get("path")
+    return (
+        arguments.get("command") == "view"
+        and isinstance(path, str)
+        and bool(path.strip())
+        and arguments.keys() <= _FILE_EDITOR_VIEW_ARGUMENT_KEYS
+    )
+
+
+def _is_terminal_payload(arguments: dict[str, Any]) -> bool:
+    command = arguments.get("command")
+    return (
+        isinstance(command, str)
+        and bool(command.strip())
+        and arguments.keys() <= _TERMINAL_ARGUMENT_KEYS
+    )
 
 
 _GREP_FALLBACK_SCRIPT = textwrap.dedent(
@@ -480,6 +545,8 @@ def normalize_tool_call(
     tool_name: str,
     arguments: dict[str, Any],
     available_tools: Collection[str],
+    *,
+    file_editor_default_path: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Normalize legacy tool names and Anthropic-style argument shapes.
 
@@ -538,7 +605,38 @@ def normalize_tool_call(
                 }
                 normalized_arguments["command"] = terminal_command
 
+    if (
+        normalized_tool_name == "task"
+        and "file_editor" in available_tools
+        and _is_file_editor_view_payload(normalized_arguments)
+    ):
+        logger.warning(
+            "Rerouted task call with file_editor view arguments to file_editor"
+        )
+        normalized_tool_name = "file_editor"
+
+    if (
+        normalized_tool_name == "task"
+        and "terminal" in available_tools
+        and _is_terminal_payload(normalized_arguments)
+    ):
+        logger.warning("Rerouted task call with terminal arguments to terminal")
+        normalized_tool_name = "terminal"
+
     if normalized_tool_name == "file_editor":
+        if (
+            normalized_arguments.get("command") == "view"
+            and "path" not in normalized_arguments
+            and file_editor_default_path is not None
+        ):
+            logger.warning(
+                "Defaulted pathless file_editor view to workspace %r",
+                file_editor_default_path,
+            )
+            normalized_arguments = {
+                "path": file_editor_default_path,
+                **normalized_arguments,
+            }
         inferred_command = _infer_file_editor_command(normalized_arguments)
         if inferred_command is not None:
             normalized_arguments = {

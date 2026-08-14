@@ -1,4 +1,20 @@
-from openhands.tools.file_editor import FileEditorTool
+import pytest
+from pydantic import ValidationError
+
+from openhands.tools.file_editor import FileEditorAction, FileEditorTool
+
+
+def test_file_editor_action_recovers_single_trailing_angle_bracket():
+    action = FileEditorAction.model_validate(
+        {"command": "str_replace>", "path": "/workspace/example.py"}
+    )
+
+    assert action.command == "str_replace"
+
+    with pytest.raises(ValidationError):
+        FileEditorAction.model_validate(
+            {"command": "str_replace>>", "path": "/workspace/example.py"}
+        )
 
 
 def test_to_mcp_tool_detailed_type_validation_editor(mock_conversation_state):

@@ -526,6 +526,64 @@ def test_explicitly_registered_tool_not_hijacked_by_alias():
     assert tool_name == "file_editor", "str_replace alias should map to file_editor"
 
 
+def test_task_with_file_editor_view_payload_is_rerouted():
+    tool_name, args = agent_utils.normalize_tool_call(
+        "task",
+        {"command": "view", "path": "/workspace"},
+        {"task", "file_editor"},
+    )
+
+    assert tool_name == "file_editor"
+    assert args == {"command": "view", "path": "/workspace"}
+
+    tool_name, args = agent_utils.normalize_tool_call(
+        "task",
+        {"prompt": "Inspect the workspace"},
+        {"task", "file_editor"},
+    )
+    assert tool_name == "task"
+    assert args == {"prompt": "Inspect the workspace"}
+
+
+def test_task_with_terminal_payload_is_rerouted():
+    tool_name, args = agent_utils.normalize_tool_call(
+        "task",
+        {"command": "git status --short --branch", "timeout": 30},
+        {"task", "terminal"},
+    )
+
+    assert tool_name == "terminal"
+    assert args == {"command": "git status --short --branch", "timeout": 30}
+
+    tool_name, args = agent_utils.normalize_tool_call(
+        "task",
+        {"prompt": "Inspect the workspace", "command": "git status"},
+        {"task", "terminal"},
+    )
+    assert tool_name == "task"
+    assert args == {"prompt": "Inspect the workspace", "command": "git status"}
+
+
+def test_pathless_file_editor_view_defaults_only_read_call():
+    tool_name, args = agent_utils.normalize_tool_call(
+        "file_editor",
+        {"command": "view"},
+        {"file_editor"},
+        file_editor_default_path="/workspace",
+    )
+
+    assert tool_name == "file_editor"
+    assert args == {"command": "view", "path": "/workspace"}
+
+    _, edit_args = agent_utils.normalize_tool_call(
+        "file_editor",
+        {"command": "str_replace", "old_str": "old", "new_str": "new"},
+        {"file_editor"},
+        file_editor_default_path="/workspace",
+    )
+    assert "path" not in edit_args
+
+
 def test_malformed_tool_name_str_replace_xml_tag(tmp_path):
     """Test that malformed tool names like 'str_replace </parameter' are fixed.
 

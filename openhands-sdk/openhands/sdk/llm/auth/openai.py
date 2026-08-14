@@ -24,7 +24,7 @@ from urllib.parse import urlencode
 from aiohttp import web
 from authlib.common.security import generate_token
 from authlib.oauth2.rfc7636 import create_s256_code_challenge
-from httpx import AsyncClient, Client
+from httpx import AsyncClient, Client, RequestError
 from joserfc import jwk, jwt
 from joserfc.errors import JoseError
 
@@ -361,7 +361,14 @@ async def _poll_device_code(device_code: DeviceCode) -> dict[str, Any]:
     deadline = time.monotonic() + DEVICE_CODE_TIMEOUT_SECONDS
 
     while time.monotonic() < deadline:
-        token_response = await _poll_device_code_once(device_code)
+        try:
+            token_response = await _poll_device_code_once(device_code)
+        except RequestError as exc:
+            logger.warning(
+                "Transient error polling OpenAI device authorization; retrying: %s",
+                type(exc).__name__,
+            )
+            token_response = None
         if token_response is not None:
             return token_response
 
@@ -502,7 +509,21 @@ class OpenAISubscriptionAuth:
         if not creds.is_expired():
             return creds
 
-        logger.info("Refreshing OpenAI access token")
+        return await self.force_refresh()
+
+    async def force_refresh(self) -> OAuthCredentials | None:
+        """Refresh credentials even when their stored expiry is still in the future.
+
+        The provider can revoke or expire an access token before the OAuth
+        metadata's ``expires_at`` value. Callers use this after an explicit
+        ``token_expired`` response so the stale metadata cannot suppress
+        recovery.
+        """
+        creds = self.get_credentials()
+        if creds is None:
+            return None
+
+        logger.info("Force-refreshing OpenAI access token")
         tokens = await _refresh_access_token(creds.refresh_token)
         updated = self._credential_store.update_tokens(
             vendor=self.vendor,
@@ -521,7 +542,15 @@ class OpenAISubscriptionAuth:
         if not creds.is_expired():
             return creds
 
-        logger.info("Refreshing OpenAI access token")
+        return self.force_refresh_sync()
+
+    def force_refresh_sync(self) -> OAuthCredentials | None:
+        """Synchronous counterpart to :meth:`force_refresh`."""
+        creds = self.get_credentials()
+        if creds is None:
+            return None
+
+        logger.info("Force-refreshing OpenAI access token")
         tokens = _refresh_access_token_sync(creds.refresh_token)
         return self._credential_store.update_tokens(
             vendor=self.vendor,

@@ -1117,6 +1117,69 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
             retry_listener=self._retry_listener_fn,
         )
 
+    def _is_recoverable_subscription_token_error(self, error: Exception) -> bool:
+        """Return whether the provider explicitly rejected the access token."""
+        if not self.is_subscription:
+            return False
+        message = str(error).lower()
+        return (
+            "token_expired" in message
+            or "token_invalidated" in message
+            or "authentication token is expired" in message
+        )
+
+    def _force_refresh_subscription_credentials(self) -> None:
+        from openhands.sdk.llm.auth.openai import OpenAISubscriptionAuth
+
+        auth = OpenAISubscriptionAuth(
+            credential_store=self._subscription_credential_store
+        )
+        credentials = auth.force_refresh_sync()
+        if credentials is None:
+            raise ValueError("OpenAI subscription login is required")
+        self._subscription_credentials = credentials
+
+    async def _aforce_refresh_subscription_credentials(self) -> None:
+        from openhands.sdk.llm.auth.openai import OpenAISubscriptionAuth
+
+        auth = OpenAISubscriptionAuth(
+            credential_store=self._subscription_credential_store
+        )
+        credentials = await auth.force_refresh()
+        if credentials is None:
+            raise ValueError("OpenAI subscription login is required")
+        self._subscription_credentials = credentials
+
+    def _run_with_subscription_token_recovery(self, call: Callable[[], Any]) -> Any:
+        """Retry one call after a provider-confirmed subscription token expiry."""
+        try:
+            return call()
+        except Exception as error:
+            if not self._is_recoverable_subscription_token_error(error):
+                raise
+            logger.warning(
+                "OpenAI rejected the subscription access token; "
+                "refreshing credentials and retrying once"
+            )
+            self._force_refresh_subscription_credentials()
+            return call()
+
+    async def _arun_with_subscription_token_recovery(
+        self, call: Callable[[], Any]
+    ) -> Any:
+        """Async counterpart to :meth:`_run_with_subscription_token_recovery`."""
+        try:
+            return await call()
+        except Exception as error:
+            if not self._is_recoverable_subscription_token_error(error):
+                raise
+            logger.warning(
+                "OpenAI rejected the subscription access token; "
+                "refreshing credentials and retrying once"
+            )
+            await self._aforce_refresh_subscription_credentials()
+            return await call()
+
     def _build_completion_result(self, resp: ModelResponse) -> LLMResponse:
         """Convert a raw :class:`ModelResponse` into an :class:`LLMResponse`."""
         first_choice = resp["choices"][0]
@@ -1730,7 +1793,9 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
             return resp
 
         try:
-            return self._build_completion_result(_one_attempt())
+            return self._build_completion_result(
+                self._run_with_subscription_token_recovery(_one_attempt)
+            )
         except Exception as e:
             # If the prompt cache content is too small for the provider's
             # minimum token threshold (e.g., Vertex AI requires ≥4096 tokens),
@@ -1849,7 +1914,9 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
             return resp
 
         try:
-            return self._build_completion_result(await _one_attempt())
+            return self._build_completion_result(
+                await self._arun_with_subscription_token_recovery(_one_attempt)
+            )
         except Exception as e:
             # If the prompt cache content is too small for the provider's
             # minimum token threshold (e.g., Vertex AI requires ≥4096 tokens),
@@ -2031,7 +2098,9 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
             raise AssertionError(f"Expected ResponsesAPIResponse, got {type(ret)}")
 
         try:
-            return self._build_responses_result(_one_attempt())
+            return self._build_responses_result(
+                self._run_with_subscription_token_recovery(_one_attempt)
+            )
         except Exception as e:
             # If the prompt cache content is too small for the provider's
             # minimum token threshold (e.g., Vertex AI requires ≥4096 tokens),
@@ -2225,7 +2294,9 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
             raise AssertionError(f"Expected ResponsesAPIResponse, got {type(ret)}")
 
         try:
-            return self._build_responses_result(await _one_attempt())
+            return self._build_responses_result(
+                await self._arun_with_subscription_token_recovery(_one_attempt)
+            )
         except Exception as e:
             # If the prompt cache content is too small for the provider's
             # minimum token threshold (e.g., Vertex AI requires ≥4096 tokens),

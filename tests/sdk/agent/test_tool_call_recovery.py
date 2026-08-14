@@ -25,6 +25,7 @@ from litellm.types.utils import (
 from pydantic import SecretStr
 
 from openhands.sdk.agent import Agent
+from openhands.sdk.agent.utils import parse_tool_call_arguments
 from openhands.sdk.conversation import Conversation
 from openhands.sdk.event import ActionEvent, AgentErrorEvent, MessageEvent
 from openhands.sdk.llm import LLM, Message, TextContent
@@ -207,6 +208,52 @@ def test_control_chars_in_string_values_still_sanitized():
     action_events = [e for e in events if isinstance(e, ActionEvent)]
     assert len(action_events) >= 1
     assert action_events[0].action is not None
+
+
+def test_concatenated_argument_objects_execute_first_call():
+    """Two merged argument objects recover without an AgentErrorEvent."""
+    args_raw = (
+        '{"command":"view","path":"/workspace/first.py"}'
+        '{"command":"view","path":"/workspace/second.py"}'
+    )
+    agent = _make_agent()
+    conv = Conversation(agent=agent)
+    resp = _model_response(
+        content="Viewing files",
+        tool_calls=[
+            ChatCompletionMessageToolCall(
+                id="call_concatenated",
+                type="function",
+                function=Function(name="view_tool", arguments=args_raw),
+            )
+        ],
+    )
+
+    events: list[object] = []
+    with patch("openhands.sdk.llm.llm.litellm_completion", return_value=resp):
+        conv.send_message(
+            Message(role="user", content=[TextContent(text="View both files.")])
+        )
+        agent.step(conv, on_event=events.append)
+
+    action_events = [e for e in events if isinstance(e, ActionEvent)]
+    error_events = [e for e in events if isinstance(e, AgentErrorEvent)]
+    assert not error_events
+    assert len(action_events) == 1
+    assert isinstance(action_events[0].action, _ViewAction)
+    assert action_events[0].action.path == "/workspace/first.py"
+
+
+def test_concatenated_argument_recovery_rejects_trailing_prose():
+    """A valid object followed by non-JSON text remains a hard parse error."""
+    args_raw = '{"command":"view","path":"/workspace/first.py"} trailing'
+
+    try:
+        parse_tool_call_arguments(args_raw)
+    except json.JSONDecodeError:
+        pass
+    else:
+        raise AssertionError("Expected trailing prose to remain invalid")
 
 
 # ── Fix 2: Corrective feedback on empty response ────────────────────────

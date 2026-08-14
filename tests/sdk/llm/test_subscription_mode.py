@@ -16,6 +16,7 @@ from typing import Any, ClassVar
 from unittest.mock import patch
 
 import pytest
+from litellm.exceptions import AuthenticationError, BadRequestError
 from litellm.types.llms.base import BaseLiteLLMOpenAIResponseObject
 from litellm.types.llms.openai import ResponsesAPIResponse
 from openai.types.responses import ResponseOutputMessage, ResponseOutputText
@@ -175,6 +176,86 @@ def test_subscription_retry_does_not_add_temperature(mock_responses: Any):
     _, second_kwargs = mock_responses.call_args_list[1]
     assert "temperature" not in first_kwargs
     assert "temperature" not in second_kwargs
+
+
+@patch("openhands.sdk.llm.llm.litellm_responses")
+def test_subscription_expired_token_forces_refresh_and_retries_once(
+    mock_responses: Any,
+):
+    """Server-side expiry overrides stale future local expiry metadata."""
+    llm = _make_subscription_llm()
+    expired = AuthenticationError(
+        message='{"error":{"code":"token_expired"}}',
+        llm_provider="openai",
+        model="gpt-5.2-codex",
+    )
+    mock_responses.side_effect = [expired, _make_responses_api_response("ok")]
+
+    with (
+        patch.object(llm, "_get_litellm_auth_values", return_value=(None, {})),
+        patch.object(llm, "_force_refresh_subscription_credentials") as refresh,
+    ):
+        response = llm.responses(
+            messages=[Message(role="user", content=[TextContent(text="hi")])]
+        )
+
+    response_content = response.message.content[0]
+    assert isinstance(response_content, TextContent)
+    assert response_content.text == "ok"
+    assert mock_responses.call_count == 2
+    refresh.assert_called_once_with()
+
+
+@patch("openhands.sdk.llm.llm.litellm_responses")
+def test_subscription_invalidated_token_forces_refresh_and_retries_once(
+    mock_responses: Any,
+):
+    """LiteLLM may map a token-invalidated 401 to BadRequestError."""
+    llm = _make_subscription_llm()
+    invalidated = BadRequestError(
+        message='{"error":{"code":"token_invalidated"},"status":401}',
+        llm_provider="openai",
+        model="gpt-5.2-codex",
+    )
+    mock_responses.side_effect = [invalidated, _make_responses_api_response("ok")]
+
+    with (
+        patch.object(llm, "_get_litellm_auth_values", return_value=(None, {})),
+        patch.object(llm, "_force_refresh_subscription_credentials") as refresh,
+    ):
+        response = llm.responses(
+            messages=[Message(role="user", content=[TextContent(text="hi")])]
+        )
+
+    response_content = response.message.content[0]
+    assert isinstance(response_content, TextContent)
+    assert response_content.text == "ok"
+    assert mock_responses.call_count == 2
+    refresh.assert_called_once_with()
+
+
+@patch("openhands.sdk.llm.llm.litellm_responses")
+def test_subscription_other_authentication_error_does_not_refresh(
+    mock_responses: Any,
+):
+    """Only explicit token expiry is eligible for automatic recovery."""
+    llm = _make_subscription_llm()
+    denied = AuthenticationError(
+        message="account access denied",
+        llm_provider="openai",
+        model="gpt-5.2-codex",
+    )
+    mock_responses.side_effect = denied
+
+    with (
+        patch.object(llm, "_get_litellm_auth_values", return_value=(None, {})),
+        patch.object(llm, "_force_refresh_subscription_credentials") as refresh,
+        pytest.raises(Exception, match="account access denied"),
+    ):
+        llm.responses(messages=[Message(role="user", content=[TextContent(text="hi")])])
+
+    assert mock_responses.call_count == 1
+    refresh.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

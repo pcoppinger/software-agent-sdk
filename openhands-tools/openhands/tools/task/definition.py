@@ -126,6 +126,9 @@ When using the task tool:
 - Write a detailed prompt describing exactly what you need
 - Include specific file paths, class names, or error messages from the issue
 - Tell the agent what to report back (file paths, line numbers, code snippets)
+- For several independent tasks, use the workflow tool's `wf.map_agents()` so
+  the subagents are dispatched concurrently. Separate task calls made in
+  different responses are blocking and therefore run sequentially.
 - The agent's results are authoritative — verify subagent results only when the task involves judgment or
   interpretation.
   
@@ -196,9 +199,10 @@ class TaskTool(ToolDefinition[TaskAction, TaskObservation]):
 
 
 class TaskToolSet(ToolDefinition[TaskAction, TaskObservation]):
-    """Task tool set.
+    """Sub-agent tool set.
 
-    Creates the Task tool backed by a shared TaskManager.
+    Creates the blocking Task tool and the Workflow tool for deterministic
+    parallel fan-out.
 
     Usage:
         from openhands.tools.task import TaskToolSet
@@ -229,9 +233,10 @@ class TaskToolSet(ToolDefinition[TaskAction, TaskObservation]):
                 approve or `False` to reject.
 
         Returns:
-            List containing a single TaskTool.
+            The blocking Task tool and the parallel Workflow tool.
         """
         from openhands.tools.task.impl import TaskExecutor, TaskManager
+        from openhands.tools.workflow import WorkflowTool
 
         agent_types_info = get_factory_info()
 
@@ -255,6 +260,7 @@ class TaskToolSet(ToolDefinition[TaskAction, TaskObservation]):
                 description=task_description,
             )
         )
+        tools.extend(WorkflowTool.create())
         return tools
 
 
