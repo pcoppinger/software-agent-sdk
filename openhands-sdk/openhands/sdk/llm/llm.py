@@ -2485,6 +2485,10 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
             "messages": messages,
             **self._aws_kwargs(),
             **kwargs,
+            # The SDK retry decorator is the single retry owner. Allowing
+            # LiteLLM to retry internally multiplies one configured attempt
+            # into several unobservable transport requests.
+            "num_retries": 0,
         }
 
     def _transport_call(

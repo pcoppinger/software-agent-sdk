@@ -152,6 +152,7 @@ def test_completion_no_retry_on_success(mock_litellm_completion, default_config)
     assert isinstance(response, LLMResponse)
     assert response.raw_response == mock_response
     assert mock_litellm_completion.call_count == 1  # Only the initial call
+    assert mock_litellm_completion.call_args.kwargs["num_retries"] == 0
 
 
 @patch("openhands.sdk.llm.llm.litellm_completion")
