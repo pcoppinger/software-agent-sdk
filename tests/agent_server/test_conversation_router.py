@@ -2626,13 +2626,26 @@ def test_fork_conversation_success(
     try:
         response = client.post(
             f"/api/conversations/{sample_conversation_id}/fork",
-            json={"title": "Forked", "reset_metrics": True},
+            json={
+                "title": "Forked",
+                "reset_metrics": True,
+                "agent_settings": {
+                    "kind": "Agent",
+                    "llm": {
+                        "model": "openai/gpt-4o",
+                        "api_key": "unused",
+                        "timeout": 1200,
+                    },
+                },
+            },
         )
 
         assert response.status_code == 201
         data = response.json()
         assert data["id"] == str(sample_conversation_info.id)
         mock_conversation_service.fork_conversation.assert_called_once()
+        _, kwargs = mock_conversation_service.fork_conversation.call_args
+        assert kwargs["agent"].llm.timeout == 1200
     finally:
         client.app.dependency_overrides.clear()
 

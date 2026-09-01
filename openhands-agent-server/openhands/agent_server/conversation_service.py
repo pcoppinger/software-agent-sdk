@@ -2095,6 +2095,7 @@ class ConversationService:
         tags: dict[str, str] | None = None,
         reset_metrics: bool = True,
         from_event_id: str | None = None,
+        agent: AgentBase | None = None,
     ) -> ConversationInfo | None:
         """Fork an existing conversation, deep-copying its event history.
 
@@ -2130,6 +2131,7 @@ class ConversationService:
         fork_conv = await asyncio.to_thread(
             source_conversation.fork,
             conversation_id=fork_id,
+            agent=agent,
             title=title,
             tags=tags,
             reset_metrics=reset_metrics,

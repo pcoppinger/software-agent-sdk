@@ -3782,6 +3782,36 @@ class TestConversationTreeForkAndNavigate:
             assert len(fork_events) == len(events)
 
     @pytest.mark.asyncio
+    async def test_fork_can_replace_agent_runtime_settings(self, tmp_path):
+        """A retry can retain history without inheriting stale LLM settings."""
+        workspace_dir = tmp_path / "workspace"
+        workspace_dir.mkdir()
+        async with ConversationService(
+            conversations_dir=tmp_path / "conversations"
+        ) as svc:
+            info, source_service, events = await self._start_with_events(
+                svc, workspace_dir, ["first", "second"]
+            )
+            source_agent = source_service.get_conversation().agent
+            replacement_payload = source_agent.model_dump(
+                context={"expose_secrets": True}
+            )
+            replacement_payload["llm"]["timeout"] = 1200
+            replacement_agent = type(source_agent).model_validate(replacement_payload)
+
+            fork_info = await svc.fork_conversation(
+                info.id,
+                agent=replacement_agent,
+            )
+
+            assert fork_info is not None
+            assert fork_info.agent.llm.timeout == 1200
+            fork_service = await svc.get_event_service(fork_info.id)
+            assert fork_service is not None
+            assert len(_branch_events(fork_service.get_conversation())) == len(events)
+            assert source_service.get_conversation().agent.llm.timeout != 1200
+
+    @pytest.mark.asyncio
     async def test_fork_unknown_event_raises_without_leaking_dir(self, tmp_path):
         """fork(from_event_id) with an unknown id raises and leaves no orphan dir."""
         workspace_dir = tmp_path / "workspace"

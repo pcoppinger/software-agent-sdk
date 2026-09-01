@@ -742,6 +742,11 @@ async def fork_conversation(
     Calling ``run`` on the fork resumes from the copied state, meaning
     the agent has full event memory of the source conversation.
     """
+    fork_agent = None
+    if request.agent_settings is not None:
+        from openhands.sdk.settings.model import validate_agent_settings
+
+        fork_agent = validate_agent_settings(request.agent_settings).create_agent()
     try:
         info = await conversation_service.fork_conversation(
             conversation_id,
@@ -750,6 +755,7 @@ async def fork_conversation(
             tags=request.tags if request.tags is not None else None,
             reset_metrics=request.reset_metrics,
             from_event_id=request.from_event_id,
+            agent=fork_agent,
         )
     except ValueError as exc:
         if "already exists" in str(exc):

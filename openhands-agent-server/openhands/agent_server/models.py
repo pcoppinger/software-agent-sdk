@@ -562,6 +562,27 @@ class ForkConversationRequest(BaseModel):
             "conversation."
         ),
     )
+    agent_settings: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Optional replacement agent settings for the fork. When omitted, "
+            "the source conversation's agent is copied unchanged."
+        ),
+    )
+    @field_validator("agent_settings")
+    @classmethod
+    def _validate_agent_settings(
+        cls, value: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        from openhands.sdk.settings.model import validate_agent_settings
+
+        try:
+            validate_agent_settings(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(str(exc)) from exc
+        return value
 
 
 class NavigateConversationRequest(BaseModel):
