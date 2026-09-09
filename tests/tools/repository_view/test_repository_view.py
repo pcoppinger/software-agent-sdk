@@ -37,9 +37,10 @@ def test_repository_view_reads_file_and_directory(tmp_path: Path) -> None:
 
 def test_repository_view_schema_has_no_mutation_surface(tmp_path: Path) -> None:
     tool = RepositoryViewTool.create(conversation_state(tmp_path))[0]
-    parameters = tool.to_openai_tool()["function"].get("parameters")
+    function = tool.to_openai_tool()["function"]
+    assert "parameters" in function
+    parameters = function["parameters"]
 
-    assert parameters is not None
     assert set(parameters["properties"]) == {"path", "summary", "view_range"}
     assert tool.annotations is not None
     assert tool.annotations.readOnlyHint is True

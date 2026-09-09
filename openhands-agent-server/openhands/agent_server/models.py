@@ -569,6 +569,7 @@ class ForkConversationRequest(BaseModel):
             "the source conversation's agent is copied unchanged."
         ),
     )
+
     @field_validator("agent_settings")
     @classmethod
     def _validate_agent_settings(

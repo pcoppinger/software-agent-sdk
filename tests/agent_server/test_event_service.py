@@ -2017,8 +2017,8 @@ class TestEventServiceSaveMeta:
         assert "agent" not in json.loads(meta_file.read_text())
 
     @pytest.mark.asyncio
-    async def test_switch_profile_persists_via_conversation(self, tmp_path):
-        """Profile switches delegate to the conversation state persistence."""
+    async def test_switch_profile_delegates_without_agent_meta(self, tmp_path):
+        """A profile switch delegates to the conversation's persisted state."""
         stored = StoredConversation(
             id=uuid4(),
             workspace=LocalWorkspace(working_dir=str(tmp_path)),
@@ -2028,6 +2028,7 @@ class TestEventServiceSaveMeta:
         )
         service = EventService(stored=stored, conversations_dir=tmp_path)
         service.conversation_dir.mkdir(parents=True, exist_ok=True)
+        await service.save_meta()
 
         service._conversation = MagicMock()
 
@@ -2035,11 +2036,14 @@ class TestEventServiceSaveMeta:
 
         service._conversation.switch_profile.assert_called_once_with("new")
         assert not hasattr(service.stored, "agent")
-        assert not (service.conversation_dir / "meta.json").exists()
+        loaded = StoredConversation.model_validate_json(
+            (service.conversation_dir / "meta.json").read_text()
+        )
+        assert not hasattr(loaded, "agent")
 
     @pytest.mark.asyncio
-    async def test_condenser_token_limit_persists_via_conversation(self, tmp_path):
-        """Condenser changes delegate to the conversation state persistence."""
+    async def test_condenser_token_limit_delegates_without_agent_meta(self, tmp_path):
+        """A condenser threshold change delegates to persisted conversation state."""
         stored = StoredConversation(
             id=uuid4(),
             workspace=LocalWorkspace(working_dir=str(tmp_path)),
@@ -2049,14 +2053,17 @@ class TestEventServiceSaveMeta:
         )
         service = EventService(stored=stored, conversations_dir=tmp_path)
         service.conversation_dir.mkdir(parents=True, exist_ok=True)
+        await service.save_meta()
 
         service._conversation = MagicMock()
 
         await service.set_condenser_max_tokens(65_536)
 
         service._conversation.set_condenser_max_tokens.assert_called_once_with(65_536)
-        assert not hasattr(service.stored, "agent")
-        assert not (service.conversation_dir / "meta.json").exists()
+        loaded = StoredConversation.model_validate_json(
+            (service.conversation_dir / "meta.json").read_text()
+        )
+        assert not hasattr(loaded, "agent")
 
     @pytest.mark.asyncio
     async def test_switch_acp_model_inactive_service_raises_value_error(self, tmp_path):
