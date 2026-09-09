@@ -215,6 +215,14 @@ class LLMSummarizingCondenserSettings(CondenserSettings):
             ).model_dump()
         },
     )
+    llm: LLM | None = Field(
+        default=None,
+        description=(
+            "Optional dedicated LLM configuration for condensation. When unset, "
+            "the condenser derives a lightweight configuration from the primary LLM."
+        ),
+        json_schema_extra={SETTINGS_METADATA_KEY: SettingsFieldMetadata().model_dump()},
+    )
     keep_first: int = Field(
         default=2,
         ge=0,
@@ -282,10 +290,16 @@ class LLMSummarizingCondenserSettings(CondenserSettings):
             default_condenser_llm,
         )
 
-        condenser_llm = default_condenser_llm(llm, usage_id="condenser")
+        if self.llm is None:
+            condenser_llm = default_condenser_llm(llm, usage_id="condenser")
+        else:
+            condenser_llm = self.llm.model_copy(
+                deep=True,
+                update={"stream": False, "usage_id": "condenser"},
+            )
         condenser_llm.reset_metrics()
         condenser_kwargs = self.model_dump(
-            exclude={"enabled", "condenser_kind"},
+            exclude={"enabled", "condenser_kind", "llm"},
             exclude_none=True,
         )
         # If the user didn't explicitly configure a condenser token limit, inherit
@@ -1275,6 +1289,21 @@ class OpenHandsAgentSettings(AgentSettingsBase):
             ).model_dump()
         },
     )
+    system_prompt: str | None = Field(
+        default=None,
+        description=(
+            "Optional inline system prompt passed verbatim to the OpenHands agent. "
+            "Use this when the embedding application, rather than OpenHands' "
+            "generic coding persona, owns the agent role."
+        ),
+        json_schema_extra={
+            SETTINGS_METADATA_KEY: SettingsFieldMetadata(
+                label="System prompt",
+                prominence=SettingProminence.MINOR,
+                variant="openhands",
+            ).model_dump()
+        },
+    )
     tools: list[Tool] | None = Field(
         default=None,
         description=(
@@ -1521,6 +1550,7 @@ class OpenHandsAgentSettings(AgentSettingsBase):
             include_default_tools=include_default_tools,
             auto_attach_vision_inspect_tool=self.auto_attach_vision_inspect_tool,
             agent_context=self.agent_context,
+            system_prompt=self.system_prompt,
             condenser=condenser,
             critic=self.build_critic(),
             tool_concurrency_limit=self.tool_concurrency_limit,

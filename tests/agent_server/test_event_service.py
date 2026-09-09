@@ -3439,6 +3439,75 @@ async def test_message_in_run_cleanup_tail_is_not_stranded(
 
 
 @pytest.mark.timeout(30)
+async def test_run_true_message_after_interrupt_in_cleanup_tail_is_not_stranded(
+    real_conversation_service, tmp_path, monkeypatch
+):
+    """A replacement run request must resume a PAUSED conversation.
+
+    An interrupt endpoint may return while the old run task is still draining
+    its callback tail. If a caller then appends a message with ``run=True``,
+    ``run()`` temporarily refuses because the old task still exists. The
+    recorded rerun intent must be honored after that task clears even though
+    the interrupt left the durable execution status at PAUSED.
+    """
+    (tmp_path / "ws").mkdir()
+    parent_llm = SlowTestLLM.from_messages(
+        [text_message("reply one"), text_message("reply two")],
+        latency_s=0.0,
+    )
+    info = await start_conversation_with_test_llm(
+        real_conversation_service,
+        parent_llm=parent_llm,
+        workspace_dir=str(tmp_path / "ws"),
+        usage_id="paused-tail-rerun",
+        initial_text=None,
+    )
+    es = await real_conversation_service.get_event_service(info.id)
+    assert es is not None and es._callback_wrapper is not None
+
+    entered_tail = threading.Event()
+    release_tail = threading.Event()
+
+    def _blocking_wait(timeout: float) -> None:
+        entered_tail.set()
+        release_tail.wait(timeout)
+
+    monkeypatch.setattr(es._callback_wrapper, "wait_for_pending", _blocking_wait)
+
+    await es.send_message(
+        Message(role="user", content=[TextContent(text="first")]), run=True
+    )
+    assert await asyncio.to_thread(entered_tail.wait, 10.0)
+    first_run_task = es._run_task
+    assert first_run_task is not None
+    assert parent_llm._call_count == 1
+
+    # Model the durable state left by an explicit interrupt while the old
+    # server-side run task is still completing its cleanup tail.
+    with es._conversation._state:
+        es._conversation._state.execution_status = ConversationExecutionStatus.PAUSED
+
+    await es.send_message(
+        Message(role="user", content=[TextContent(text="second")]), run=True
+    )
+    assert es._rerun_requested is True
+    assert parent_llm._call_count == 1
+
+    release_tail.set()
+    await first_run_task
+
+    deadline = time.monotonic() + 5.0
+    while parent_llm._call_count < 2 and time.monotonic() < deadline:
+        await asyncio.sleep(0.05)
+
+    assert parent_llm._call_count == 2, (
+        "run=True message was stranded behind PAUSED cleanup state "
+        f"(call_count={parent_llm._call_count}, "
+        f"status={await es._get_execution_status()})"
+    )
+
+
+@pytest.mark.timeout(30)
 async def test_run_false_message_in_cleanup_tail_is_not_run(
     real_conversation_service, tmp_path, monkeypatch
 ):

@@ -14,6 +14,8 @@ from openhands.sdk.agent.base import AgentBase
 from openhands.sdk.agent.critic_mixin import CriticMixin
 from openhands.sdk.agent.parallel_executor import ParallelToolExecutor
 from openhands.sdk.agent.response_dispatch import (
+    ACTION_RECOVERY_MARKER,
+    LEGACY_ACTION_RECOVERY_NUDGE,
     LLMResponseType,
     ResponseDispatchMixin,
     classify_response,
@@ -98,7 +100,55 @@ from openhands.sdk.tool.builtins.vision_inspect import VISION_INSPECT_TOOL_NAME
 
 
 logger = get_logger(__name__)
+
+_PAUSE_AFTER_CONDENSATION_TAG = "tekroopauseaftercondensation"
 maybe_init_laminar()
+
+
+def _llm_for_action_recovery(llm: LLM, state: ConversationState) -> LLM:
+    """Disable hidden reasoning for the turn after a reasoning-only response.
+
+    Some OpenAI-compatible reasoning models can terminate a repetition loop while
+    still inside their hidden reasoning channel.  The following framework nudge is
+    marked explicitly by ``ResponseDispatchMixin``.  For that one recovery turn,
+    suppress hidden reasoning so the model must emit the requested tool call or
+    visible result.  The configured LLM is never mutated, so normal reasoning is
+    restored immediately after the recovery turn.
+    """
+    recovery_requested = False
+    for event in reversed(state.active_branch(limit=4)):
+        if isinstance(event, TokenEvent):
+            continue
+        if not isinstance(event, MessageEvent):
+            break
+        if (
+            event.authorship_origin is AuthorshipOrigin.FRAMEWORK
+            and event.semantic_purpose is SemanticPurpose.CONTROL_FEEDBACK
+        ):
+            recovery_requested = any(
+                isinstance(content, TextContent)
+                and (
+                    content.text.startswith(ACTION_RECOVERY_MARKER)
+                    or content.text == LEGACY_ACTION_RECOVERY_NUDGE
+                )
+                for content in event.llm_message.content
+            )
+        break
+    if not recovery_requested:
+        return llm
+
+    extra_body = dict(llm.litellm_extra_body)
+    chat_template_kwargs = dict(extra_body.get("chat_template_kwargs") or {})
+    if chat_template_kwargs.get("enable_thinking") is not True:
+        return llm
+    chat_template_kwargs["enable_thinking"] = False
+    chat_template_kwargs["preserve_thinking"] = False
+    extra_body["chat_template_kwargs"] = chat_template_kwargs
+    extra_body.pop("reasoning_budget_tokens", None)
+    extra_body.pop("reasoning_effort", None)
+    return llm.model_copy(
+        update={"litellm_extra_body": extra_body, "reasoning_effort": None}
+    )
 
 
 def _tool_has_summary_param(tool: ToolDefinition) -> bool:
@@ -683,6 +733,7 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
         # Build per-conversation context once and thread it through all
         # LLM calls in this step (avoids shared mutable state on the LLM).
         call_context: LLMCallContext = conversation.get_llm_call_context()
+        turn_llm = _llm_for_action_recovery(self.llm, state)
 
         # Establish route-aware runtime metadata (cached, no I/O on a hit)
         # before the condenser decides a token threshold, so a routed model's
@@ -692,12 +743,14 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
         # Prepare LLM messages from the cached, incrementally-maintained view.
         # See https://github.com/OpenHands/software-agent-sdk/issues/3053.
         _messages_or_condensation = prepare_llm_messages(
-            state.view, condenser=self.condenser, llm=self.llm
+            state.view, condenser=self.condenser, llm=turn_llm
         )
 
         # Process condensation event before agent sampels another action
         if isinstance(_messages_or_condensation, Condensation):
             on_event(_messages_or_condensation)
+            if state.tags.get(_PAUSE_AFTER_CONDENSATION_TAG) == "true":
+                state.execution_status = ConversationExecutionStatus.PAUSED
             return
 
         _messages = _messages_or_condensation
@@ -734,7 +787,7 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
         )
 
         try:
-            llm_response = self.llm.generate(
+            llm_response = turn_llm.generate(
                 messages=_messages,
                 tools=list(self.tools_map.values()),
                 store=False,
@@ -897,6 +950,7 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
             )
 
         call_context: LLMCallContext = conversation.get_llm_call_context()
+        turn_llm = _llm_for_action_recovery(self.llm, state)
 
         # Establish route-aware runtime metadata (cached, no I/O on a hit)
         # before the condenser decides a token threshold, so a routed model's
@@ -906,11 +960,13 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
         # Prepare LLM messages from the cached, incrementally-maintained view.
         # See https://github.com/OpenHands/software-agent-sdk/issues/3053.
         _messages_or_condensation = await aprepare_llm_messages(
-            state.view, condenser=self.condenser, llm=self.llm
+            state.view, condenser=self.condenser, llm=turn_llm
         )
 
         if isinstance(_messages_or_condensation, Condensation):
             on_event(_messages_or_condensation)
+            if state.tags.get(_PAUSE_AFTER_CONDENSATION_TAG) == "true":
+                state.execution_status = ConversationExecutionStatus.PAUSED
             return
 
         _messages = _messages_or_condensation
@@ -951,7 +1007,7 @@ class Agent(CriticMixin, ResponseDispatchMixin, AgentBase):
             # and state snapshots aren't blocked for the whole response. No-op
             # unless the run loop holds the lock (e.g. direct astep() in tests).
             async with conversation._released_state_lock_during_io():
-                llm_response = await self.llm.agenerate(
+                llm_response = await turn_llm.agenerate(
                     messages=_messages,
                     tools=list(self.tools_map.values()),
                     store=False,

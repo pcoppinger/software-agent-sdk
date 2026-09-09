@@ -96,10 +96,12 @@ def register_planning_tools() -> None:
     from openhands.tools.planning_file_editor import (
         PlanningFileEditorTool,  # noqa: F401
     )
+    from openhands.tools.repository_search import RepositorySearchTool  # noqa: F401
 
     logger.debug("Tool: GlobTool registered.")
     logger.debug("Tool: GrepTool registered.")
     logger.debug("Tool: PlanningFileEditorTool registered.")
+    logger.debug("Tool: RepositorySearchTool registered.")
 
 
 def get_planning_tools(plan_path: str | None = None) -> list[Tool]:

@@ -16,14 +16,17 @@ from openhands.sdk.conversation.state import ConversationExecutionStatus
 from openhands.sdk.event import (
     AgentResponseFinality,
     AuthorshipOrigin,
+    CondensationRequest,
     MessageEvent,
     SemanticPurpose,
+    TokenEvent,
 )
 from openhands.sdk.llm import LLMResponse, Message, TextContent
 from openhands.sdk.logger import get_logger
 
 
 if TYPE_CHECKING:
+    from openhands.sdk.context.condenser import CondenserBase
     from openhands.sdk.conversation import (
         ConversationCallbackType,
         ConversationState,
@@ -40,6 +43,12 @@ if TYPE_CHECKING:
     from openhands.sdk.security.analyzer import SecurityAnalyzerBase
 
 logger = get_logger(__name__)
+
+ACTION_RECOVERY_MARKER = "OPENHANDS_ACTION_RECOVERY:"
+LEGACY_ACTION_RECOVERY_NUDGE = (
+    "Your last response did not include a function call or a message. "
+    "Please use a tool to proceed with the task."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +107,7 @@ class ResponseDispatchMixin:
     # Declared for pyright — the actual implementations live on Agent.
     if TYPE_CHECKING:
         critic: CriticBase | None
+        condenser: CondenserBase | None
 
         def _get_action_event(
             self,
@@ -289,6 +299,7 @@ class ResponseDispatchMixin:
         event and sends corrective feedback so the model knows it must
         produce a tool call or user-facing content.
         """
+        request_condensation = self._should_condense_after_no_content(state)
         if response_type is LLMResponseType.EMPTY:
             logger.warning("LLM produced empty response - continuing agent loop")
         self._emit_message_event(
@@ -300,7 +311,42 @@ class ResponseDispatchMixin:
             finality=AgentResponseFinality.INTERMEDIATE,
         )
         self._maybe_emit_vllm_tokens(llm_response, on_event)
-        self._send_corrective_nudge(on_event)
+        if request_condensation:
+            logger.warning(
+                "LLM produced a second consecutive response without an action or "
+                "visible result - requesting context condensation"
+            )
+            on_event(CondensationRequest())
+            return
+        self._send_corrective_nudge(on_event, response_type=response_type)
+
+    def _should_condense_after_no_content(self, state: ConversationState) -> bool:
+        """Return whether the preceding model response also made no progress.
+
+        A single reasoning-only or empty response receives corrective feedback.
+        Repeating that result with no intervening action is evidence that the
+        current context is not producing progress, so a compatible condenser is
+        asked to change the context before another model call.
+        """
+        if self.condenser is None or not self.condenser.handles_condensation_requests():
+            return False
+
+        for event in reversed(state.active_branch(limit=8)):
+            if isinstance(event, TokenEvent):
+                continue
+            if isinstance(event, MessageEvent):
+                if event.source == "agent":
+                    return classify_response(event.llm_message) in (
+                        LLMResponseType.REASONING_ONLY,
+                        LLMResponseType.EMPTY,
+                    )
+                if (
+                    event.authorship_origin is AuthorshipOrigin.FRAMEWORK
+                    and event.semantic_purpose is SemanticPurpose.CONTROL_FEEDBACK
+                ):
+                    continue
+            return False
+        return False
 
     def _emit_message_event(
         self,
@@ -364,7 +410,12 @@ class ResponseDispatchMixin:
             }
         )
 
-    def _send_corrective_nudge(self, on_event: ConversationCallbackType) -> None:
+    def _send_corrective_nudge(
+        self,
+        on_event: ConversationCallbackType,
+        *,
+        response_type: LLMResponseType,
+    ) -> None:
         """Inject corrective feedback when no tool call and no content.
 
         The model still receives this as a user-role message, but the event
@@ -374,19 +425,22 @@ class ResponseDispatchMixin:
             "LLM response contained no tool call and no content"
             " - sending corrective feedback"
         )
+        if response_type is LLMResponseType.REASONING_ONLY:
+            text = (
+                f"{ACTION_RECOVERY_MARKER}\n"
+                "Your reasoning ended without a function call or visible message. "
+                "Do not continue, repeat, or reconsider the analysis. Make exactly "
+                "one tool call now. If the assigned result is ready, call finish "
+                "with that result; otherwise make the single repository or execution "
+                "call needed to unblock it."
+            )
+        else:
+            text = f"{ACTION_RECOVERY_MARKER}\n{LEGACY_ACTION_RECOVERY_NUDGE}"
         nudge = MessageEvent(
             source="environment",
             llm_message=Message(
                 role="user",
-                content=[
-                    TextContent(
-                        text=(
-                            "Your last response did not include a "
-                            "function call or a message. Please "
-                            "use a tool to proceed with the task."
-                        )
-                    )
-                ],
+                content=[TextContent(text=text)],
             ),
             authorship_origin=AuthorshipOrigin.FRAMEWORK,
             semantic_purpose=SemanticPurpose.CONTROL_FEEDBACK,

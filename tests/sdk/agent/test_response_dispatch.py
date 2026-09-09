@@ -5,9 +5,16 @@ from unittest.mock import MagicMock
 
 import pytest
 from litellm.types.utils import ModelResponse
+from pydantic import PrivateAttr
 
 from openhands.sdk.agent import Agent
-from openhands.sdk.agent.response_dispatch import LLMResponseType, classify_response
+from openhands.sdk.agent.response_dispatch import (
+    ACTION_RECOVERY_MARKER,
+    LEGACY_ACTION_RECOVERY_NUDGE,
+    LLMResponseType,
+    classify_response,
+)
+from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.conversation import Conversation, LocalConversation
 from openhands.sdk.conversation.state import ConversationExecutionStatus
 from openhands.sdk.conversation.stuck_detector import StuckDetector
@@ -20,6 +27,7 @@ from openhands.sdk.event import (
     ObservationEvent,
     SemanticPurpose,
 )
+from openhands.sdk.event.condenser import CondensationRequest
 from openhands.sdk.llm import (
     LLM,
     LLMResponse,
@@ -204,6 +212,52 @@ def _make_llm_response(message: Message) -> LLMResponse:
     )
 
 
+class _RepeatingLLM(LLM):
+    _response: LLMResponse = PrivateAttr()
+
+    def __init__(self, response: LLMResponse):
+        super().__init__(model="test-model")
+        self._response = response
+
+    def completion(  # type: ignore[override]
+        self, *, messages, tools=None, **kwargs
+    ) -> LLMResponse:
+        return self._response
+
+    async def acompletion(  # type: ignore[override]
+        self, messages, tools=None, **kwargs
+    ) -> LLMResponse:
+        return self._response
+
+
+class _RecoveryRecordingLLM(_RepeatingLLM):
+    _extra_body_calls: list[dict] = PrivateAttr()
+
+    def __init__(self, response: LLMResponse, calls: list[dict]):
+        super().__init__(response)
+        self.litellm_extra_body = {
+            "chat_template_kwargs": {
+                "enable_thinking": True,
+                "preserve_thinking": True,
+            },
+            "reasoning_budget_tokens": 12288,
+            "reasoning_effort": "xhigh",
+        }
+        self._extra_body_calls = calls
+
+    def completion(  # type: ignore[override]
+        self, *, messages, tools=None, **kwargs
+    ) -> LLMResponse:
+        self._extra_body_calls.append(self.litellm_extra_body)
+        return self._response
+
+    async def acompletion(  # type: ignore[override]
+        self, messages, tools=None, **kwargs
+    ) -> LLMResponse:
+        self._extra_body_calls.append(self.litellm_extra_body)
+        return self._response
+
+
 def _run_single_step(
     llm_response: LLMResponse,
     *,
@@ -324,7 +378,41 @@ def test_empty_response_sends_nudge():
     assert msg_events[1].llm_message.role == "user"
     nudge_content = msg_events[1].llm_message.content[0]
     assert isinstance(nudge_content, TextContent)
+    assert nudge_content.text.startswith(ACTION_RECOVERY_MARKER)
     assert "function call" in nudge_content.text
+
+
+def test_legacy_action_recovery_nudge_disables_thinking() -> None:
+    response = _make_llm_response(
+        Message(
+            role="assistant",
+            content=[TextContent(text="done")],
+        )
+    )
+    calls: list[dict] = []
+    llm = _RecoveryRecordingLLM(response, calls)
+    agent = Agent(llm=llm, tools=[])
+    conversation = Conversation(agent=agent)
+    conversation._ensure_agent_ready()
+    conversation.state.append_event(
+        MessageEvent(
+            source="environment",
+            llm_message=Message(
+                role="user",
+                content=[TextContent(text=LEGACY_ACTION_RECOVERY_NUDGE)],
+            ),
+            authorship_origin=AuthorshipOrigin.FRAMEWORK,
+            semantic_purpose=SemanticPurpose.CONTROL_FEEDBACK,
+            agent_response_finality=AgentResponseFinality.NOT_APPLICABLE,
+        )
+    )
+
+    agent.step(conversation, on_event=conversation.state.append_event)
+
+    assert calls[0]["chat_template_kwargs"] == {
+        "enable_thinking": False,
+        "preserve_thinking": False,
+    }
 
 
 def test_reasoning_only_sends_nudge():
@@ -338,6 +426,123 @@ def test_reasoning_only_sends_nudge():
     assert msg_events[0].source == "agent"
     assert msg_events[1].source == "environment"
     assert msg_events[1].llm_message.role == "user"
+    nudge = msg_events[1].llm_message.content[0]
+    assert isinstance(nudge, TextContent)
+    assert nudge.text.startswith(ACTION_RECOVERY_MARKER)
+    assert "Do not continue, repeat, or reconsider" in nudge.text
+
+
+def test_reasoning_only_recovery_disables_thinking_for_one_sync_turn() -> None:
+    response = _make_llm_response(
+        Message(role="assistant", reasoning_content="I have the result ready")
+    )
+    calls: list[dict] = []
+    llm = _RecoveryRecordingLLM(response, calls)
+    agent = Agent(llm=llm, tools=[])
+    conversation = Conversation(agent=agent)
+    conversation._ensure_agent_ready()
+
+    def on_event(event: Event) -> None:
+        conversation.state.append_event(event)
+
+    agent.step(conversation, on_event=on_event)
+    agent.step(conversation, on_event=on_event)
+
+    assert calls[0]["chat_template_kwargs"]["enable_thinking"] is True
+    assert calls[1]["chat_template_kwargs"] == {
+        "enable_thinking": False,
+        "preserve_thinking": False,
+    }
+    assert "reasoning_budget_tokens" not in calls[1]
+    assert "reasoning_effort" not in calls[1]
+    assert llm.litellm_extra_body["chat_template_kwargs"]["enable_thinking"] is True
+
+
+@pytest.mark.asyncio
+async def test_reasoning_only_recovery_disables_thinking_for_one_async_turn() -> None:
+    response = _make_llm_response(
+        Message(role="assistant", reasoning_content="I have the result ready")
+    )
+    calls: list[dict] = []
+    llm = _RecoveryRecordingLLM(response, calls)
+    agent = Agent(llm=llm, tools=[])
+    conversation = Conversation(agent=agent)
+    conversation._ensure_agent_ready()
+
+    def on_event(event: Event) -> None:
+        conversation.state.append_event(event)
+
+    await agent.astep(conversation, on_event=on_event)
+    await agent.astep(conversation, on_event=on_event)
+
+    assert calls[0]["chat_template_kwargs"]["enable_thinking"] is True
+    assert calls[1]["chat_template_kwargs"] == {
+        "enable_thinking": False,
+        "preserve_thinking": False,
+    }
+    assert "reasoning_budget_tokens" not in calls[1]
+    assert "reasoning_effort" not in calls[1]
+    assert llm.litellm_extra_body["chat_template_kwargs"]["enable_thinking"] is True
+
+
+def test_second_no_content_response_requests_condensation() -> None:
+    """One corrective retry is allowed; a repeated no-progress response compacts."""
+    response = _make_llm_response(Message(role="assistant", content=[]))
+    llm = _RepeatingLLM(response)
+    agent = Agent(
+        llm=llm,
+        tools=[],
+        condenser=LLMSummarizingCondenser(llm=llm, max_size=20),
+    )
+    conversation = Conversation(agent=agent)
+    conversation._ensure_agent_ready()
+    events: list[Event] = []
+
+    def on_event(event: Event) -> None:
+        events.append(event)
+        conversation.state.append_event(event)
+
+    agent.step(conversation, on_event=on_event)
+    agent.step(conversation, on_event=on_event)
+
+    requests = [event for event in events if isinstance(event, CondensationRequest)]
+    nudges = [
+        event
+        for event in events
+        if isinstance(event, MessageEvent) and event.source == "environment"
+    ]
+    assert len(requests) == 1
+    assert len(nudges) == 1
+
+
+@pytest.mark.asyncio
+async def test_async_second_no_content_response_requests_condensation() -> None:
+    response = _make_llm_response(Message(role="assistant", content=[]))
+    llm = _RepeatingLLM(response)
+    agent = Agent(
+        llm=llm,
+        tools=[],
+        condenser=LLMSummarizingCondenser(llm=llm, max_size=20),
+    )
+    conversation = Conversation(agent=agent)
+    conversation._ensure_agent_ready()
+    events: list[Event] = []
+
+    def on_event(event: Event) -> None:
+        events.append(event)
+        conversation.state.append_event(event)
+
+    await agent.astep(conversation, on_event=on_event)
+    await agent.astep(conversation, on_event=on_event)
+
+    requests = [event for event in events if isinstance(event, CondensationRequest)]
+    nudges = [
+        event
+        for event in events
+        if isinstance(event, MessageEvent) and event.source == "environment"
+    ]
+    assert len(requests) == 1
+    assert len(nudges) == 1
 
 
 def test_corrective_nudge_does_not_reset_stuck_detection_window():

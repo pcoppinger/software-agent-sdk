@@ -12,24 +12,6 @@ from openhands.sdk.logger import get_logger
 logger = get_logger(__name__)
 
 
-categories = [
-    {"emoji": "💄", "name": "frontend", "description": "UI and style files"},
-    {"emoji": "👔", "name": "backend", "description": "Business logic"},
-    {"emoji": "✅", "name": "test", "description": "Tests"},
-    {"emoji": "👷", "name": "devops", "description": "CI build system"},
-    {"emoji": "🚀", "name": "deployment", "description": "Deploy stuff"},
-    {"emoji": "📦️", "name": "dependencies", "description": "Packages and dependencies"},
-    {"emoji": "🗃️", "name": "database", "description": "Database changes"},
-    {"emoji": "🔧", "name": "chores", "description": "Configuration and maintenance"},
-    {"emoji": "✨", "name": "features", "description": "New features"},
-    {"emoji": "🐛", "name": "bugfix", "description": "Bug fixes"},
-    {"emoji": "⚡️", "name": "performance", "description": "Performance improvements"},
-    {"emoji": "🔒️", "name": "security", "description": "Security fixes"},
-    {"emoji": "📝", "name": "documentation", "description": "Documentation"},
-    {"emoji": "♻️", "name": "refactor", "description": "Code refactoring"},
-]
-
-
 def extract_message_text(event: MessageEvent) -> str | None:
     """Extract plain-text content from a message event."""
     if not event.llm_message.content:
@@ -100,10 +82,6 @@ def generate_title_with_llm(
     else:
         truncated_message = message
 
-    emojis_descriptions = "\n- ".join(
-        f"{c['emoji']} {c['name']}: {c['description']}" for c in categories
-    )
-
     try:
         # Create messages for the LLM to generate a title
         messages = [
@@ -112,33 +90,19 @@ def generate_title_with_llm(
                 content=[
                     TextContent(
                         text=(
-                            "You are a helpful assistant that generates concise, "
-                            "descriptive titles for conversations with OpenHands. "
-                            "OpenHands is a helpful AI agent that can interact "
-                            "with a computer to solve tasks using bash terminal, "
-                            "file editor, and browser. Given a user message "
-                            "(which may be truncated), generate a concise, "
-                            "descriptive title for the conversation. Return only "
-                            "the title, with no additional text, quotes, or "
-                            "explanations."
+                            "Write a specific 3 to 7 word title for the users "
+                            "requested action or problem. Ignore preliminary "
+                            "context such as familiarize yourself. Drop polite "
+                            "filler. Preserve important technology names. "
+                            "Output only the title without an emoji, category, "
+                            "quotes, explanation, or ending punctuation."
                         )
                     )
                 ],
             ),
             Message(
                 role="user",
-                content=[
-                    TextContent(
-                        text=(
-                            f"Generate a title (maximum {max_length} characters) "
-                            f"for a conversation that starts with this message:\n\n"
-                            f"{truncated_message}."
-                            "Also make sure to include ONE most relevant emoji at "
-                            "the start of the title."
-                            f" Choose the emoji from this list:{emojis_descriptions} "
-                        )
-                    )
-                ],
+                content=[TextContent(text=truncated_message)],
             ),
         ]
 
@@ -156,9 +120,10 @@ def generate_title_with_llm(
                 )
                 return None
 
-            # Ensure the title isn't too long
+            # Keep the limit without cutting through the final word.
             if len(title) > max_length:
-                title = title[: max_length - 3] + "..."
+                prefix = title[: max_length - 3].rsplit(" ", 1)[0].rstrip(" -:,.\t")
+                title = (prefix or title[: max_length - 3]).rstrip() + "..."
 
             return title
         else:

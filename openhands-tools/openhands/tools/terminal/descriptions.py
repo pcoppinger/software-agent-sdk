@@ -3,11 +3,20 @@
 UNIX_TOOL_DESCRIPTION = "\n".join(
     [
         "Execute a shell command in the terminal within a persistent shell session.",
+        "Arguments: send `command` and only the documented optional arguments.",
+        (
+            "Never send a `description` argument; descriptive text belongs outside "
+            "the tool call."
+        ),
         "",
         "",
         "### Command Execution",
         "* One command at a time: You can only execute one shell command at a time.",
-        "  If you need to run multiple commands sequentially, use `&&` or `;`.",
+        "  If you need to run multiple commands, issue separate terminal actions.",
+        "  Do not join commands with pipes, semicolons, `&&`, subshells, command",
+        "  substitutions, environment-variable expansion, or embedded newlines.",
+        "  In particular, never pipe `rg` output to `head`; narrow the `rg` query",
+        "  or inspect the returned list in a separate action.",
         "* Persistent session: Environment variables, virtual environments, and",
         "  working directory changes persist across commands.",
         "* Soft timeout: Commands pause for confirmation after 10 seconds without",
@@ -16,8 +25,8 @@ UNIX_TOOL_DESCRIPTION = "\n".join(
         "  The runtime may not support them reliably.",
         "",
         "### Long-running Commands",
-        "* For commands that may run indefinitely, run them in the background and",
-        "  redirect output to a file, e.g. `python3 app.py > server.log 2>&1 &`.",
+        "* Run long-lived work as one foreground command with an appropriate timeout.",
+        "  Poll that terminal session afterward with `is_input=true`.",
         "* For long-running commands, set the `timeout` parameter accordingly.",
         "* If a command returns exit code `-1`, it hit the soft timeout and is",
         "  still running. With `is_input=true`, you can:",
@@ -49,11 +58,18 @@ WINDOWS_TOOL_DESCRIPTION = "\n".join(
             "Execute a shell command in the terminal within a persistent "
             "PowerShell session."
         ),
+        "Arguments: send `command` and only the documented optional arguments.",
+        (
+            "Never send a `description` argument; descriptive text belongs outside "
+            "the tool call."
+        ),
         "",
         "",
         "### Command Execution",
         "* One command at a time: You can only execute one PowerShell command at a",
-        "  time. If you need multiple commands, prefer `;` to chain them.",
+        "  time. If you need multiple commands, issue separate terminal actions.",
+        "  Do not join commands with pipes, semicolons, subshells,",
+        "  environment-variable expansion, or embedded newlines.",
         "* Persistent session: Environment variables, modules, and working",
         "  directory changes persist across commands.",
         "* Soft timeout: Commands pause for confirmation after 10 seconds without",
@@ -62,8 +78,8 @@ WINDOWS_TOOL_DESCRIPTION = "\n".join(
         "  `Set-Location`, or common aliases like `ls`, `cd`, and `pwd`.",
         "",
         "### Long-running Commands",
-        "* For commands that may run indefinitely, prefer background jobs such as",
-        "  `Start-Job -ScriptBlock { python app.py } | Receive-Job -Wait`.",
+        "* Run long-lived work as one foreground command with an appropriate timeout.",
+        "  Poll that terminal session afterward with `is_input=true`.",
         "* For long-running commands, set the `timeout` parameter accordingly.",
         "* If a command returns exit code `-1`, it hit the soft timeout and is",
         "  still running. With `is_input=true`, you can:",

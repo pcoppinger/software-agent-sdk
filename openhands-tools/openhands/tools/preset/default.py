@@ -21,11 +21,17 @@ def register_default_tools(enable_browser: bool = True) -> None:
     """Register the default set of tools."""
     # Tools are now automatically registered when imported
     from openhands.tools.file_editor import FileEditorTool
+    from openhands.tools.glob import GlobTool
+    from openhands.tools.repository_search import RepositorySearchTool
+    from openhands.tools.repository_view import RepositoryViewTool
     from openhands.tools.task_tracker import TaskTrackerTool
     from openhands.tools.terminal import TerminalTool
 
     logger.debug(f"Tool: {TerminalTool.name} registered.")
     logger.debug(f"Tool: {FileEditorTool.name} registered.")
+    logger.debug(f"Tool: {GlobTool.name} registered.")
+    logger.debug(f"Tool: {RepositorySearchTool.name} registered.")
+    logger.debug(f"Tool: {RepositoryViewTool.name} registered.")
     logger.debug(f"Tool: {TaskTrackerTool.name} registered.")
 
     if enable_browser:

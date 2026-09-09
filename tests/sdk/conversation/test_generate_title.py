@@ -192,6 +192,7 @@ def test_generate_title_with_llm_truncates_long_response(mock_completion):
     # Verify the title was truncated
     assert len(title) <= 20
     assert title.endswith("...")
+    assert title == "Create a Complex..."
 
 
 @patch("openhands.sdk.llm.llm.LLM.completion")
@@ -218,6 +219,36 @@ def test_generate_title_with_custom_llm(mock_completion):
 
     # Verify the title was generated
     assert title == "Debug Code Issue"
+
+
+@patch("openhands.sdk.llm.llm.LLM.completion")
+def test_generate_title_prompt_does_not_include_category_examples(mock_completion):
+    """The title prompt must not tempt small models to copy a category example."""
+    agent = create_test_agent()
+    conv = Conversation(agent=agent, visualizer=None)
+    message = (
+        "Please familiarize yourself with this project. Also, please start the "
+        "visualization server and tell me the URL I need to invoke."
+    )
+    conv.state.events.append(create_user_message_event(message))
+    mock_completion.return_value = create_mock_llm_response(
+        "Visualization Server Setup"
+    )
+
+    title = conv.generate_title()
+
+    assert title == "Visualization Server Setup"
+    prompt_messages = mock_completion.call_args.args[0]
+    assert prompt_messages[1].content == [TextContent(text=message)]
+    prompt_text = "\n".join(
+        content.text
+        for prompt_message in prompt_messages
+        for content in prompt_message.content
+        if isinstance(content, TextContent)
+    )
+    assert message in prompt_text
+    assert "frontend: UI and style files" not in prompt_text
+    assert "Choose the emoji" not in prompt_text
 
 
 @patch("openhands.sdk.llm.llm.LLM.completion")

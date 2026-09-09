@@ -1371,11 +1371,12 @@ class EventService:
                     # the wait_for_pending() tail above had its run() rejected as
                     # "conversation_already_running" and suppressed, setting
                     # _rerun_requested. Honor it while the conversation is IDLE
-                    # (pending input) or internally ACP-interrupted PAUSED (the
-                    # old task finished its interrupt before the replacement run
-                    # could start). Explicit user pause/interrupt clears the
-                    # internal ACP flag, so user stop intent wins over an older
-                    # automatic restart request. If the run loop was still alive
+                    # (pending input) or PAUSED after an interrupted run (the old
+                    # task finished its interrupt before the explicitly requested
+                    # replacement run could start). A later explicit user
+                    # pause/interrupt clears the rerun flag and increments the
+                    # generation, so stop intent still wins over an older restart
+                    # request. If the run loop was still alive
                     # it already absorbed the message and we are FINISHED here,
                     # so the guard avoids a redundant run. A deliberate
                     # run=False append, or an IDLE reached via another path,
@@ -1396,11 +1397,7 @@ class EventService:
                         )
                         should_restart = rerun_generation_still_valid and (
                             status == ConversationExecutionStatus.IDLE
-                            or (
-                                acp_internal_rerun_still_valid
-                                and status == ConversationExecutionStatus.PAUSED
-                                and isinstance(conversation.agent, ACPAgent)
-                            )
+                            or status == ConversationExecutionStatus.PAUSED
                         )
                         if should_restart:
                             try:

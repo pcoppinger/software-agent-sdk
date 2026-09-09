@@ -67,6 +67,7 @@ def test_llm_agent_settings_export_schema_groups_sections() -> None:
     general_fields = {f.key: f for f in sections["general"].fields}
     assert set(general_fields) == {
         "agent",
+        "system_prompt",
         "tools",
         "enable_sub_agents",
         "enable_switch_llm_tool",
@@ -355,6 +356,7 @@ def test_export_agent_settings_schema_emits_variant_tagged_sections() -> None:
     general_keys = {f.key for f in general.fields}
     assert general_keys == {
         "agent",
+        "system_prompt",
         "tools",
         "enable_sub_agents",
         "enable_switch_llm_tool",
@@ -973,6 +975,15 @@ def test_llm_create_agent_uses_settings_llm_and_tools() -> None:
     assert agent.tools == tools
 
 
+def test_llm_create_agent_preserves_embedding_application_system_prompt() -> None:
+    settings = OpenHandsAgentSettings(
+        llm=LLM(model="test-model"), tools=[], system_prompt="TEAMS ROLE PROMPT"
+    )
+    agent = settings.create_agent()
+    assert agent.system_prompt == "TEAMS ROLE PROMPT"
+    assert agent.static_system_message == "TEAMS ROLE PROMPT"
+
+
 def test_llm_create_agent_defaults_tool_concurrency_limit_to_one() -> None:
     agent = OpenHandsAgentSettings(llm=LLM(model="test-model")).create_agent()
     assert agent.tool_concurrency_limit == 1
@@ -1228,9 +1239,56 @@ def test_llm_summarizing_condenser_settings_match_condenser_fields() -> None:
     settings_fields = set(LLMSummarizingCondenserSettings.model_fields) - {
         "enabled",
         "condenser_kind",
+        "llm",
     }
 
     assert settings_fields == condenser_fields
+
+
+def test_llm_create_agent_uses_explicit_condenser_llm() -> None:
+    primary = LLM(
+        model="openai/primary",
+        base_url="http://127.0.0.1:8800/v1",
+        api_key="primary-key",
+    )
+    summary_llm = LLM(
+        model="openai/summary",
+        base_url="http://127.0.0.1:8802/v1",
+        api_key="summary-key",
+        litellm_extra_body={
+            "reasoning_effort": "low",
+            "chat_template_kwargs": {
+                "enable_thinking": False,
+                "preserve_thinking": False,
+            },
+        },
+    )
+    settings = OpenHandsAgentSettings.model_validate(
+        {
+            "llm": primary.model_dump(mode="json"),
+            "condenser": {
+                "kind": "LLMSummarizingCondenser",
+                "llm": summary_llm.model_dump(mode="json"),
+                "max_size": 80,
+                "max_tokens": 96_000,
+                "keep_first": 2,
+            },
+        }
+    )
+
+    agent = settings.create_agent()
+
+    assert isinstance(agent.condenser, LLMSummarizingCondenser)
+    assert agent.condenser.llm.model == "openai/summary"
+    assert agent.condenser.llm.base_url == "http://127.0.0.1:8802/v1"
+    assert agent.condenser.llm.usage_id == "condenser"
+    assert agent.condenser.llm.litellm_extra_body == {
+        "reasoning_effort": "low",
+        "chat_template_kwargs": {
+            "enable_thinking": False,
+            "preserve_thinking": False,
+        },
+    }
 
 
 def test_openhands_agent_settings_defaults_legacy_condenser_payload() -> None:

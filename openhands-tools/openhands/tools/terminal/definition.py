@@ -5,7 +5,7 @@ import platform
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 
 if TYPE_CHECKING:
@@ -86,6 +86,15 @@ def looks_like_python_literal_argument(command: str) -> str | None:
 class TerminalAction(Action):
     """Schema for terminal command execution."""
 
+    @model_validator(mode="before")
+    @classmethod
+    def discard_description_compatibility_hint(cls, data):
+        """Ignore Bash-style display metadata that some models synthesize."""
+        if isinstance(data, Mapping) and "description" in data:
+            data = dict(data)
+            data.pop("description")
+        return data
+
     command: str = Field(
         description=(
             "The shell command to execute. Can be empty string to view"
@@ -95,8 +104,10 @@ class TerminalAction(Action):
             " for Ctrl sequences; navigation keys `UP`, `DOWN`, `LEFT`,"
             " `RIGHT`, `HOME`, `END`, `PGUP`, `PGDN`; and `TAB`, `ESC`,"
             " `BS` (Backspace), `ENTER`. You can only execute one command"
-            " at a time. Use the platform-appropriate shell syntax described"
-            " in the tool description when chaining commands."
+            " at a time. If more than one command is needed, issue separate"
+            " terminal actions; never chain commands in this field. Never pipe"
+            " rg output to head; narrow the rg query or inspect its output in a"
+            " separate action."
         )
     )
     is_input: bool = Field(
