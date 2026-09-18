@@ -238,7 +238,7 @@ def test_generate_title_prompt_does_not_include_category_examples(mock_completio
     title = conv.generate_title()
 
     assert title == "Visualization Server Setup"
-    prompt_messages = mock_completion.call_args.args[0]
+    prompt_messages = mock_completion.call_args.kwargs["messages"]
     assert prompt_messages[1].content == [TextContent(text=message)]
     prompt_text = "\n".join(
         content.text
