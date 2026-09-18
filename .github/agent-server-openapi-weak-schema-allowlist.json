@@ -246,6 +246,12 @@
     "owner": "OpenHands OSS"
   },
   {
+    "pointer": "/components/schemas/ForkConversationRequest/properties/agent_settings/anyOf/0/additionalProperties",
+    "kind": "unrestricted-additional-properties",
+    "reason": "Fork replacement settings retain the same backward-compatible extension surface as start-conversation agent settings.",
+    "owner": "Tekroo"
+  },
+  {
     "pointer": "/components/schemas/GlobTool/properties/meta/anyOf/0/additionalProperties",
     "kind": "unrestricted-additional-properties",
     "reason": "Tool metadata is intentionally extensible across tool providers.",
@@ -382,6 +388,18 @@
     "kind": "unrestricted-additional-properties",
     "reason": "Tool metadata is intentionally extensible across tool providers.",
     "owner": "OpenHands OSS"
+  },
+  {
+    "pointer": "/components/schemas/RepositorySearchTool/properties/meta/anyOf/0/additionalProperties",
+    "kind": "unrestricted-additional-properties",
+    "reason": "Tool metadata is intentionally extensible across tool providers.",
+    "owner": "Tekroo"
+  },
+  {
+    "pointer": "/components/schemas/RepositoryViewTool/properties/meta/anyOf/0/additionalProperties",
+    "kind": "unrestricted-additional-properties",
+    "reason": "Tool metadata is intentionally extensible across tool providers.",
+    "owner": "Tekroo"
   },
   {
     "pointer": "/components/schemas/SettingsResponse/properties/agent_settings/additionalProperties",
