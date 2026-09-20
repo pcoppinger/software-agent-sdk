@@ -186,6 +186,20 @@ class TmuxTerminal(TerminalInterface):
             logger.debug(f"Error closing tmux session (may already be dead): {e}")
         self._closed: bool = True
 
+    # Threshold for multi-line commands that need chunked sending.
+    # Sending a large multi-line payload as one `send-keys -l` burst corrupts
+    # input when bash readline is active: readline's line redraw races the
+    # incoming bytes and the pane receives duplicated/spliced chunks (bulk
+    # 2 KB heredocs corrupted in 3/3 raw-tmux trials with readline on, 0/3
+    # with it off; bracketed paste via `paste-buffer -p` does not help
+    # because macOS bash 3.2 predates bracketed-paste support). Sending
+    # line-by-line was clean in 5/5 trials. Same class of fix as GitHub
+    # issue #2181 in SubprocessTerminal, which never covered this backend.
+    _MULTILINE_THRESHOLD: int = 20
+
+    # Small delay between lines for pacing (seconds); see _MULTILINE_THRESHOLD.
+    _LINE_PACING_DELAY: float = 0.002
+
     def send_keys(self, text: str, enter: bool = True) -> None:
         """Send text/keys to the tmux pane.
 
@@ -194,6 +208,9 @@ class TmuxTerminal(TerminalInterface):
           - Named specials: ENTER, TAB, BS, ESC, UP, DOWN, LEFT, RIGHT,
             HOME, END, PGUP, PGDN, C-L, C-D, C-C
           - Generic Ctrl sequences: C-a..C-z, CTRL-x, CTRL+x
+
+        Long multi-line text (> _MULTILINE_THRESHOLD lines) is sent
+        line-by-line with pacing to avoid readline redraw corruption.
 
         Args:
             text: Text or key sequence to send
@@ -217,7 +234,17 @@ class TmuxTerminal(TerminalInterface):
             self.pane.send_keys(ctrl, enter=False)
             return
 
-        # 3) Plain text — use literal=True so tmux doesn't split on
+        # 3) Long multi-line text — send line-by-line with pacing.
+        lines = text.split("\n")
+        if len(lines) > self._MULTILINE_THRESHOLD:
+            for line in lines:
+                self.pane.send_keys(line + "\n", enter=False, literal=True)
+                time.sleep(self._LINE_PACING_DELAY)
+            if enter and not text.endswith("\n"):
+                self.pane.send_keys("Enter", enter=False)
+            return
+
+        # 4) Plain text — use literal=True so tmux doesn't split on
         #    whitespace or interpret special tokens.
         self.pane.send_keys(text, enter=False, literal=True)
         if enter and not text.endswith("\n"):
