@@ -162,10 +162,17 @@ class TmuxTerminal(TerminalInterface):
         _initial_window.kill()
 
         # Configure bash to use simple PS1 and disable PS2
-        # Disable history expansion to avoid ! mangling
-        self.pane.send_keys(
-            f'set +H; export PROMPT_COMMAND=\'export PS1="{self.PS1}"\'; export PS2=""'
+        # Disable history expansion to avoid ! mangling.
+        # Disable readline (emacs mode) entirely: with readline active, bulk
+        # multi-line input corrupts (line redraw races incoming bytes) and TAB
+        # characters trigger filename completion, splicing directory listings
+        # into heredoc bodies. With readline off, both corruption families
+        # disappear (A/B verified 2026-09-19: 4/4 byte-exact vs 2/2 corrupt).
+        _init = (
+            "set +H; set +o emacs; "
+            f'export PROMPT_COMMAND=\'export PS1="{self.PS1}"\'; export PS2=""'
         )
+        self.pane.send_keys(_init)
         time.sleep(0.1)  # Wait for command to take effect
 
         logger.debug(f"Tmux terminal initialized with work dir: {self.work_dir}")

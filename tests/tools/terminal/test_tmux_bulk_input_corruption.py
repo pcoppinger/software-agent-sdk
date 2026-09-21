@@ -77,6 +77,67 @@ def test_short_text_still_sent_in_one_burst() -> None:
     assert pane.send_keys.call_args_list[0].args[0] == "echo one\necho two"
 
 
+# ── integration: readline disabled at pane creation ─────────────────
+
+
+def _tab_heredoc_command(path: str) -> str:
+    # Tab-indented Go-style body, 12 lines: under _MULTILINE_THRESHOLD so it
+    # travels the burst path. With readline active, the TABs trigger filename
+    # completion and splice a directory listing into the heredoc body.
+    body = "".join(f"\tif x == {i} {{\n\t\treturn {i * 2}\n\t}}\n" for i in range(4))
+    return f"cat > {path} <<'EOF'\n{body}EOF"
+
+
+def _tab_expected_content() -> bytes:
+    body = "".join(f"\tif x == {i} {{\n\t\treturn {i * 2}\n\t}}\n" for i in range(4))
+    return body.encode()
+
+
+def test_readline_disabled_in_real_pane() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        term = TmuxTerminal(work_dir=tmpdir)
+        term.initialize()
+        try:
+            out = f"{tmpdir}/emacs.txt"
+            term.send_keys(f"set -o | awk '/^emacs/ {{print $2}}' > {out}")
+            deadline = time.time() + 10
+            while time.time() < deadline:
+                try:
+                    if open(out).read().strip() == "off":
+                        return
+                except FileNotFoundError:
+                    pass
+                time.sleep(0.2)
+            pytest.fail(f"readline still active in pane: {open(out).read()!r}")
+        finally:
+            term.close()
+
+
+@pytest.mark.parametrize("attempt", range(3))
+def test_tab_indented_heredoc_lands_byte_exact(attempt: int) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        out = f"{tmpdir}/tabbed.go"
+        term = TmuxTerminal(work_dir=tmpdir)
+        term.initialize()
+        try:
+            term.send_keys(_tab_heredoc_command(out))
+            deadline = time.time() + 15
+            while time.time() < deadline:
+                try:
+                    if open(out, "rb").read() == _tab_expected_content():
+                        return
+                except FileNotFoundError:
+                    pass
+                time.sleep(0.2)
+            data = open(out, "rb").read() if os.path.exists(out) else b""
+            pytest.fail(
+                f"tab-indented heredoc corrupted in pane (attempt {attempt}): "
+                f"got {data[:200]!r}"
+            )
+        finally:
+            term.close()
+
+
 # ── integration: byte-exact landing through a real pane ─────────────
 
 
