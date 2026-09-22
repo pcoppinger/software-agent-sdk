@@ -28,6 +28,16 @@ PRIORITIZE:
 
 SKIP: Tracking irrelevant details for the current task type
 
+FAITHFULNESS (mandatory): Describe only actions that actually appear in the
+events. Do not invent, infer, or embellish any action or result. State each
+action by the tool that was actually used and its real outcome: if the agent
+only searched for a symbol and the search returned nothing, say it searched and
+found nothing — never say it read, inspected, or verified a file or symbol that
+no event shows it reading. Never claim a file was read, a fact was confirmed, or
+a state was established unless an event in this list actually shows it. When the
+evidence is absent, write that it is unknown rather than filling the gap with a
+plausible guess.
+
 Example formats:
 
 For code tasks:
