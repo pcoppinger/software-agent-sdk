@@ -26,13 +26,21 @@ class RepositorySearchAction(Action):
     path: str | None = Field(
         default=None,
         description=(
-            "Optional workspace-relative or absolute directory. It must remain "
-            "inside the current workspace."
+            "Optional workspace-relative or absolute file or directory. It must "
+            "remain inside the current workspace. A file searches that file alone; "
+            "a directory searches it recursively."
         ),
     )
     include: str | None = Field(
         default=None,
         description='Optional filename pattern such as "*.go" or "*_test.go"',
+    )
+    exclude: str | None = Field(
+        default=None,
+        description=(
+            'Optional filename pattern to skip, such as "*_test.go"; applied when '
+            "searching a directory"
+        ),
     )
     max_results: int = Field(
         default=50,
@@ -63,7 +71,8 @@ class RepositorySearchObservation(Observation):
 TOOL_DESCRIPTION = """Read-only repository content search.
 * Returns matching source lines as workspace-relative `path:line:text` records
 * Searches case-insensitively with regular expressions
-* Can restrict the search to a directory and filename pattern
+* Can restrict the search to a single file, a directory, and a filename include
+  or exclude pattern
 * Never reads outside the current workspace and never modifies files
 * Returns at most 100 matching lines; narrow the pattern when results are truncated
 """  # noqa: E501

@@ -54,3 +54,47 @@ def test_bounds_results_and_reports_truncation(tmp_path: Path) -> None:
     assert result.text.endswith(
         "[Results truncated; narrow the search pattern or path.]"
     )
+
+
+def test_searches_a_single_named_file(tmp_path: Path) -> None:
+    (tmp_path / "host.go").write_text(
+        "package organization\nfunc (host *Host) Roster() {}\n"
+    )
+    (tmp_path / "other.go").write_text("func (host *Host) Roster() {}\n")
+    executor = RepositorySearchExecutor(str(tmp_path))
+
+    result = executor(RepositorySearchAction(pattern="func \\(host", path="host.go"))
+
+    assert not result.is_error
+    assert [match.model_dump() for match in result.matches] == [
+        {
+            "path": "host.go",
+            "line": 2,
+            "text": "func (host *Host) Roster() {}",
+        }
+    ]
+
+
+def test_single_file_search_ignores_include_and_exclude(tmp_path: Path) -> None:
+    source = tmp_path / "host.go"
+    source.write_text("needle\n")
+    executor = RepositorySearchExecutor(str(tmp_path))
+
+    result = executor(
+        RepositorySearchAction(pattern="needle", path="host.go", exclude="*.go")
+    )
+
+    assert not result.is_error
+    assert [match.path for match in result.matches] == ["host.go"]
+
+
+def test_exclude_pattern_skips_files_in_a_directory(tmp_path: Path) -> None:
+    (tmp_path / "service.go").write_text("needle\n")
+    (tmp_path / "service_test.go").write_text("needle\n")
+    executor = RepositorySearchExecutor(str(tmp_path))
+
+    result = executor(
+        RepositorySearchAction(pattern="needle", include="*.go", exclude="*_test.go")
+    )
+
+    assert [match.path for match in result.matches] == ["service.go"]

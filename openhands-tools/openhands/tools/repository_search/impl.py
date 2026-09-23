@@ -41,53 +41,43 @@ class RepositorySearchExecutor(
             return self._error(action, self.workspace_root, f"Invalid regex: {error}")
 
         search_path = self._resolve_search_path(action.path)
-        if search_path is None or not search_path.is_dir():
+        if search_path is None or not search_path.exists():
             return self._error(
                 action,
                 search_path or self.workspace_root,
-                "Search path must be a directory inside the current workspace",
+                "Search path must be a file or directory inside the current workspace",
             )
 
         matches: list[RepositoryMatch] = []
         truncated = False
-        for root, directories, filenames in os.walk(search_path, followlinks=False):
-            directories[:] = sorted(
-                name for name in directories if not name.startswith(".")
-            )
-            for filename in sorted(filenames):
-                if filename.startswith(".") or (
-                    action.include and not fnmatch.fnmatch(filename, action.include)
-                ):
+        if search_path.is_file():
+            # An explicitly named file is searched directly; include/exclude
+            # filename filters are directory-walk selectors and do not apply to
+            # a file the caller named.
+            candidates = [search_path]
+        else:
+            candidates = self._walk_files(search_path, action.include, action.exclude)
+        for resolved_file in candidates:
+            try:
+                lines = resolved_file.read_text(
+                    encoding="utf-8", errors="ignore"
+                ).splitlines()
+            except OSError:
+                continue
+            relative = resolved_file.relative_to(self.workspace_root).as_posix()
+            for line_number, line in enumerate(lines, 1):
+                if pattern.search(line) is None:
                     continue
-                file_path = Path(root, filename)
-                resolved_file = file_path.resolve()
-                if (
-                    not self._inside_workspace(resolved_file)
-                    or not resolved_file.is_file()
-                ):
-                    continue
-                try:
-                    lines = resolved_file.read_text(
-                        encoding="utf-8", errors="ignore"
-                    ).splitlines()
-                except OSError:
-                    continue
-                relative = resolved_file.relative_to(self.workspace_root).as_posix()
-                for line_number, line in enumerate(lines, 1):
-                    if pattern.search(line) is None:
-                        continue
-                    if len(matches) == action.max_results:
-                        truncated = True
-                        break
-                    matches.append(
-                        RepositoryMatch(
-                            path=relative,
-                            line=line_number,
-                            text=line[: self._MAX_LINE_CHARACTERS],
-                        )
-                    )
-                if truncated:
+                if len(matches) == action.max_results:
+                    truncated = True
                     break
+                matches.append(
+                    RepositoryMatch(
+                        path=relative,
+                        line=line_number,
+                        text=line[: self._MAX_LINE_CHARACTERS],
+                    )
+                )
             if truncated:
                 break
 
@@ -107,6 +97,30 @@ class RepositorySearchExecutor(
             candidate = self.workspace_root / candidate
         resolved = candidate.resolve()
         return resolved if self._inside_workspace(resolved) else None
+
+    def _walk_files(
+        self, search_path: Path, include: str | None, exclude: str | None
+    ) -> list[Path]:
+        files: list[Path] = []
+        for root, directories, filenames in os.walk(search_path, followlinks=False):
+            directories[:] = sorted(
+                name for name in directories if not name.startswith(".")
+            )
+            for filename in sorted(filenames):
+                if filename.startswith("."):
+                    continue
+                if include and not fnmatch.fnmatch(filename, include):
+                    continue
+                if exclude and fnmatch.fnmatch(filename, exclude):
+                    continue
+                resolved_file = Path(root, filename).resolve()
+                if (
+                    not self._inside_workspace(resolved_file)
+                    or not resolved_file.is_file()
+                ):
+                    continue
+                files.append(resolved_file)
+        return files
 
     def _inside_workspace(self, path: Path) -> bool:
         return path == self.workspace_root or self.workspace_root in path.parents
