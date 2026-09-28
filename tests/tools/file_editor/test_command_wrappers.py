@@ -47,6 +47,11 @@ def test_command_schemas_are_flat_and_require_operation_inputs(tmp_path: Path):
         assert schema is not None
         assert set(schema["required"]) == expected[name]
         assert "command" not in schema["properties"]
+        if name == "file_view":
+            assert "view_range" not in schema["properties"]
+            assert schema["additionalProperties"] is False
+            assert schema["properties"]["start_line"]["type"] == "integer"
+            assert schema["properties"]["end_line"]["type"] == "integer"
 
     with pytest.raises(ValidationError):
         tools["file_replace"].action_from_arguments(
@@ -71,6 +76,27 @@ def test_wrappers_share_history_and_editor_rules(tmp_path: Path):
     assert not call("file_insert", insert_line=1, new_str="middle\n").is_error
     assert "middle" in call("file_view").text
     assert call("file_create", file_text="again").is_error
+
+
+def test_file_view_accepts_scalar_bounds_and_legacy_range(tmp_path: Path):
+    tools = _tools(tmp_path)
+    path = tmp_path / "lines.txt"
+    path.write_text("first\nsecond\nthird\n")
+    tool = tools["file_view"]
+
+    def view(**arguments):
+        return tool(tool.action_from_arguments({"path": str(path), **arguments}))
+
+    assert "second" in view(start_line=2, end_line=2).text
+    assert "first" not in view(start_line=2, end_line=2).text
+    assert "third" in view(start_line=2).text
+    assert "third" not in view(end_line=2).text
+    assert "second" in view(view_range=[2, 2]).text
+
+    with pytest.raises(ValidationError):
+        tool.action_from_arguments(
+            {"path": str(path), "start_line": 2, "view_range": [2, 2]}
+        )
 
 
 def test_editor_history_is_per_conversation(tmp_path: Path):

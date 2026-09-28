@@ -46,7 +46,7 @@ class RepositoryViewExecutor(ToolExecutor):
             return self.editor(
                 command="view",
                 path=str(resolved),
-                view_range=action.view_range,
+                view_range=action.inclusive_range,
             )
         except ToolError as error:
             return FileEditorObservation.from_text(

@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from openhands.sdk.tool import (
     Action,
@@ -14,6 +14,7 @@ from openhands.sdk.tool import (
     ToolExecutor,
     register_tool,
 )
+from openhands.sdk.tool.schema import Schema
 from openhands.tools.file_editor.definition import (
     FileEditorAction,
     FileEditorObservation,
@@ -28,12 +29,42 @@ if TYPE_CHECKING:
 
 class FileViewAction(Action):
     path: str = Field(description="Absolute path to a file or directory to view.")
+    start_line: int | None = Field(
+        default=None,
+        ge=1,
+        description="Optional first line to read, starting at 1.",
+    )
+    end_line: int | None = Field(
+        default=None,
+        description="Optional last line to read; use -1 for the end of the file.",
+    )
     view_range: list[int] | None = Field(
         default=None,
         min_length=2,
         max_length=2,
-        description="Optional inclusive line range [start, end]; use -1 for the end.",
+        description="Legacy inclusive line range accepted from saved tool calls.",
     )
+
+    @model_validator(mode="after")
+    def validate_range(self) -> "FileViewAction":
+        if self.view_range is not None and (
+            self.start_line is not None or self.end_line is not None
+        ):
+            raise ValueError("Use start_line/end_line or view_range, not both")
+        if self.end_line is not None and self.end_line != -1 and self.end_line < 1:
+            raise ValueError("end_line must be positive or -1")
+        return self
+
+    @property
+    def inclusive_range(self) -> list[int] | None:
+        if self.view_range is not None:
+            return self.view_range
+        if self.start_line is None and self.end_line is None:
+            return None
+        return [
+            self.start_line or 1,
+            self.end_line if self.end_line is not None else -1,
+        ]
 
 
 class FileCreateAction(Action):
@@ -73,8 +104,12 @@ class _CommandExecutor(ToolExecutor[Action, FileEditorObservation]):
         action: Action,
         conversation: "LocalConversation | None" = None,
     ) -> FileEditorObservation:
+        if isinstance(action, FileViewAction):
+            arguments = {"path": action.path, "view_range": action.inclusive_range}
+        else:
+            arguments = action.model_dump(exclude={"kind"})
         editor_action = FileEditorAction.model_validate(
-            {"command": self.command, **action.model_dump(exclude={"kind"})}
+            {"command": self.command, **arguments}
         )
         return self.editor(editor_action, conversation)
 
@@ -128,8 +163,21 @@ class FileViewTool(
     action_model: ClassVar[type[Action]] = FileViewAction
     tool_description: ClassVar[str] = (
         "Read a file with line numbers, or list a directory. "
-        "Optionally request an inclusive line range."
+        "Use optional start_line and end_line integers to limit the view."
     )
+
+    def _get_tool_schema(
+        self,
+        add_security_risk_prediction: bool = False,
+        action_type: type[Schema] | None = None,
+    ) -> dict[str, Any]:
+        schema = super()._get_tool_schema(
+            add_security_risk_prediction=add_security_risk_prediction,
+            action_type=action_type,
+        )
+        schema["properties"].pop("view_range", None)
+        schema["additionalProperties"] = False
+        return schema
 
 
 class FileCreateTool(

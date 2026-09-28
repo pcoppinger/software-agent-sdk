@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from openhands.sdk.tool import (
     Action,
@@ -30,13 +30,42 @@ class RepositoryViewAction(Action):
             "inside the current workspace."
         )
     )
+    start_line: int | None = Field(
+        default=None,
+        ge=1,
+        description="Optional first line to read, starting at 1.",
+    )
+    end_line: int | None = Field(
+        default=None,
+        description="Optional last line to read; use -1 for the end of the file.",
+    )
     view_range: list[int] | None = Field(
         default=None,
-        description=(
-            "Optional one-based inclusive [start, end] line range for a file; "
-            "use -1 as end to read through EOF."
-        ),
+        min_length=2,
+        max_length=2,
+        description="Legacy inclusive line range accepted from saved tool calls.",
     )
+
+    @model_validator(mode="after")
+    def validate_range(self) -> "RepositoryViewAction":
+        if self.view_range is not None and (
+            self.start_line is not None or self.end_line is not None
+        ):
+            raise ValueError("Use start_line/end_line or view_range, not both")
+        if self.end_line is not None and self.end_line != -1 and self.end_line < 1:
+            raise ValueError("end_line must be positive or -1")
+        return self
+
+    @property
+    def inclusive_range(self) -> list[int] | None:
+        if self.view_range is not None:
+            return self.view_range
+        if self.start_line is None and self.end_line is None:
+            return None
+        return [
+            self.start_line or 1,
+            self.end_line if self.end_line is not None else -1,
+        ]
 
 
 TOOL_DESCRIPTION = """Read-only repository file and directory viewer.
@@ -59,7 +88,8 @@ class RepositoryViewTool(ToolDefinition[RepositoryViewAction, FileEditorObservat
             add_security_risk_prediction=add_security_risk_prediction,
             action_type=action_type,
         )
-        schema["properties"]["view_range"].update(minItems=2, maxItems=2)
+        schema["properties"].pop("view_range", None)
+        schema["additionalProperties"] = False
         return schema
 
     def declared_resources(self, action: Action) -> DeclaredResources:
