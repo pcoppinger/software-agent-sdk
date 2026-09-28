@@ -168,6 +168,14 @@ class AgentBase(DiscriminatedUnionMixin, ABC):
         ),
         examples=[["FinishTool", "ThinkTool"], ["FinishTool"], []],
     )
+    require_tool_call_for_completion: bool = Field(
+        default=False,
+        description=(
+            "Require a tool call rather than plain text to complete this "
+            "conversation. Plain-text responses receive at most two framework "
+            "corrections; a third ends the conversation in error."
+        ),
+    )
     auto_attach_vision_inspect_tool: bool = Field(
         default=True,
         description=(

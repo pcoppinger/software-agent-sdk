@@ -41,10 +41,12 @@ if TYPE_CHECKING:
         ThinkingBlock,
     )
     from openhands.sdk.security.analyzer import SecurityAnalyzerBase
+    from openhands.sdk.tool import ToolDefinition
 
 logger = get_logger(__name__)
 
 ACTION_RECOVERY_MARKER = "OPENHANDS_ACTION_RECOVERY:"
+STRUCTURED_COMPLETION_RECOVERY_MARKER = "STRUCTURED_COMPLETION_REQUIRED:"
 LEGACY_ACTION_RECOVERY_NUDGE = (
     "Your last response did not include a function call or a message. "
     "Please use a tool to proceed with the task."
@@ -108,6 +110,8 @@ class ResponseDispatchMixin:
     if TYPE_CHECKING:
         critic: CriticBase | None
         condenser: CondenserBase | None
+        require_tool_call_for_completion: bool
+        tools_map: dict[str, ToolDefinition]
 
         def _get_action_event(
             self,
@@ -269,7 +273,33 @@ class ResponseDispatchMixin:
         on_event: ConversationCallbackType,
         stream: StreamContext | None = None,
     ) -> None:
-        """Handle LLM response with text content — finishes conversation."""
+        """Handle an LLM text response, preserving structured completion contracts."""
+        if self.require_tool_call_for_completion:
+            corrections = self._structured_completion_correction_count(state)
+            if corrections >= 2:
+                self._emit_message_event(
+                    message,
+                    llm_response,
+                    conversation,
+                    on_event,
+                    stream,
+                    finality=AgentResponseFinality.FINAL,
+                )
+                self._maybe_emit_vllm_tokens(llm_response, on_event)
+                logger.error("LLM did not call the required completion tool")
+                state.execution_status = ConversationExecutionStatus.ERROR
+                return
+            self._emit_message_event(
+                message,
+                llm_response,
+                conversation,
+                on_event,
+                stream,
+                finality=AgentResponseFinality.INTERMEDIATE,
+            )
+            self._maybe_emit_vllm_tokens(llm_response, on_event)
+            self._send_structured_completion_nudge(on_event)
+            return
         self._emit_message_event(
             message,
             llm_response,
@@ -281,6 +311,51 @@ class ResponseDispatchMixin:
         self._maybe_emit_vllm_tokens(llm_response, on_event)
         logger.debug("LLM produced a message response - awaits user input")
         state.execution_status = ConversationExecutionStatus.FINISHED
+
+    @staticmethod
+    def _structured_completion_correction_count(state: ConversationState) -> int:
+        """Count structured completion feedback on the active branch."""
+        return sum(
+            isinstance(event, MessageEvent)
+            and event.authorship_origin is AuthorshipOrigin.FRAMEWORK
+            and event.semantic_purpose is SemanticPurpose.CONTROL_FEEDBACK
+            and any(
+                isinstance(part, TextContent)
+                and part.text.startswith(STRUCTURED_COMPLETION_RECOVERY_MARKER)
+                for part in event.llm_message.content
+            )
+            for event in state.active_branch()
+        )
+
+    def _send_structured_completion_nudge(
+        self, on_event: ConversationCallbackType
+    ) -> None:
+        """Keep a structured-output invocation live after one prose response."""
+        available = ", ".join(sorted(self.tools_map))
+        logger.warning("LLM produced plain text where a tool call is required")
+        on_event(
+            MessageEvent(
+                source="environment",
+                llm_message=Message(
+                    role="user",
+                    content=[
+                        TextContent(
+                            text=(
+                                f"{STRUCTURED_COMPLETION_RECOVERY_MARKER}\n"
+                                "This invocation has no free-text completion channel. "
+                                f"The available tools are: {available}. "
+                                "Read the result_protocol in the assigned task and "
+                                "call its named completion tool with the "
+                                "structured result."
+                            )
+                        )
+                    ],
+                ),
+                authorship_origin=AuthorshipOrigin.FRAMEWORK,
+                semantic_purpose=SemanticPurpose.CONTROL_FEEDBACK,
+                agent_response_finality=AgentResponseFinality.NOT_APPLICABLE,
+            )
+        )
 
     def _handle_no_content_response(
         self,

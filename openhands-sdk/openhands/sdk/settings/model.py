@@ -78,7 +78,11 @@ from .metadata import (
 if TYPE_CHECKING:
     from openhands.sdk.agent import ACPAgent, Agent
     from openhands.sdk.agent.base import AgentBase
-    from openhands.sdk.context.condenser import CondenserBase, LLMSummarizingCondenser
+    from openhands.sdk.context.condenser import (
+        CondenserBase,
+        LLMSummarizingCondenser,
+        TeamsCheckpointCondenser,
+    )
     from openhands.sdk.critic.base import CriticBase
 
 
@@ -189,17 +193,9 @@ class CondenserSettings(BaseModel):
         )
 
 
-class LLMSummarizingCondenserSettings(CondenserSettings):
-    """Settings for the default LLM summarizing condenser."""
+class _LLMCondenserSettingsBase(CondenserSettings):
+    """Configuration shared by the summarizing and checkpoint condensers."""
 
-    condenser_kind: Literal["llm_summarizing"] = Field(
-        default="llm_summarizing",
-        description=(
-            "Discriminator for the condenser settings union. ``'llm_summarizing'`` "
-            "selects the default LLM summarizing condenser."
-        ),
-        json_schema_extra={SETTINGS_METADATA_KEY: SettingsFieldMetadata().model_dump()},
-    )
     max_tokens: int | None = Field(
         default=None,
         gt=0,
@@ -312,6 +308,61 @@ class LLMSummarizingCondenserSettings(CondenserSettings):
         return LLMSummarizingCondenser(llm=condenser_llm, **condenser_kwargs)
 
 
+class LLMSummarizingCondenserSettings(_LLMCondenserSettingsBase):
+    """Settings for the default LLM summarizing condenser."""
+
+    condenser_kind: Literal["llm_summarizing"] = Field(
+        default="llm_summarizing",
+        description=(
+            "Discriminator for the condenser settings union. ``'llm_summarizing'`` "
+            "selects the default LLM summarizing condenser."
+        ),
+        json_schema_extra={SETTINGS_METADATA_KEY: SettingsFieldMetadata().model_dump()},
+    )
+
+
+class TeamsCheckpointCondenserSettings(_LLMCondenserSettingsBase):
+    """Settings for Teams' checkpoint-only conversation condenser.
+
+    It uses the standard rolling selection policy but deliberately emits no
+    LLM-written summary. Teams appends the authoritative checkpoint itself.
+    """
+
+    condenser_kind: Literal["teams_checkpoint"] = Field(
+        default="teams_checkpoint",
+        description="Discriminator for the Teams checkpoint-only condenser.",
+        json_schema_extra={SETTINGS_METADATA_KEY: SettingsFieldMetadata().model_dump()},
+    )
+
+    def build_condenser(self, llm: LLM) -> TeamsCheckpointCondenser | None:
+        """Create a checkpoint-only condenser, or ``None`` when disabled."""
+        if not self.enabled:
+            return None
+
+        from openhands.sdk.context.condenser import (
+            TeamsCheckpointCondenser,
+            default_condenser_llm,
+        )
+
+        if self.llm is None:
+            condenser_llm = default_condenser_llm(llm, usage_id="condenser")
+        else:
+            condenser_llm = self.llm.model_copy(
+                deep=True,
+                update={"stream": False, "usage_id": "condenser"},
+            )
+        condenser_llm.reset_metrics()
+        condenser_kwargs = self.model_dump(
+            exclude={"enabled", "condenser_kind", "llm"},
+            exclude_none=True,
+        )
+        if "max_tokens" not in self.model_fields_set:
+            effective_max_input_tokens = llm.effective_max_input_tokens
+            if effective_max_input_tokens is not None:
+                condenser_kwargs["max_tokens"] = effective_max_input_tokens
+        return TeamsCheckpointCondenser(llm=condenser_llm, **condenser_kwargs)
+
+
 class NoOpCondenserSettings(CondenserSettings):
     """Settings for a condenser that leaves conversation views unchanged."""
 
@@ -351,6 +402,7 @@ def _condenser_settings_discriminator(value: Any) -> str:
 
 CondenserSettingsConfig = Annotated[
     Annotated[LLMSummarizingCondenserSettings, Tag("llm_summarizing")]
+    | Annotated[TeamsCheckpointCondenserSettings, Tag("teams_checkpoint")]
     | Annotated[NoOpCondenserSettings, Tag("no_op")],
     Discriminator(_condenser_settings_discriminator),
 ]
@@ -1377,6 +1429,12 @@ class OpenHandsAgentSettings(AgentSettingsBase):
             ).model_dump()
         },
     )
+    require_tool_call_for_completion: bool = Field(
+        default=False,
+        description=(
+            "Require a tool call rather than plain text to complete this agent run."
+        ),
+    )
     auto_attach_vision_inspect_tool: bool = Field(
         default=True,
         description=(
@@ -1548,6 +1606,7 @@ class OpenHandsAgentSettings(AgentSettingsBase):
             tools=tools,
             mcp_config=self.mcp_config,
             include_default_tools=include_default_tools,
+            require_tool_call_for_completion=self.require_tool_call_for_completion,
             auto_attach_vision_inspect_tool=self.auto_attach_vision_inspect_tool,
             agent_context=self.agent_context,
             system_prompt=self.system_prompt,

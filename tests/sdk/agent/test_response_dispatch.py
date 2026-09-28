@@ -11,6 +11,7 @@ from openhands.sdk.agent import Agent
 from openhands.sdk.agent.response_dispatch import (
     ACTION_RECOVERY_MARKER,
     LEGACY_ACTION_RECOVERY_NUDGE,
+    STRUCTURED_COMPLETION_RECOVERY_MARKER,
     LLMResponseType,
     classify_response,
 )
@@ -265,6 +266,7 @@ def _run_single_step(
     record_emitted_events_in_state: bool = False,
     secrets: dict[str, str] | None = None,
     prepare: Callable[[LocalConversation], None] | None = None,
+    require_tool_call_for_completion: bool = False,
 ) -> tuple[list[Event], LocalConversation]:
     """Run one agent step with a canned LLM response."""
     from pydantic import PrivateAttr
@@ -282,7 +284,11 @@ def _run_single_step(
             return self._response
 
     llm = SingleShotLLM(llm_response)
-    agent = Agent(llm=llm, tools=[])
+    agent = Agent(
+        llm=llm,
+        tools=[],
+        require_tool_call_for_completion=require_tool_call_for_completion,
+    )
     conversation = Conversation(agent=agent)
     conversation._ensure_agent_ready()
     if secrets is not None:
@@ -357,6 +363,48 @@ def test_content_response_sets_finished():
     assert msg_events[0].authorship_origin is AuthorshipOrigin.AGENT_MODEL
     assert msg_events[0].semantic_purpose is SemanticPurpose.AGENT_RESPONSE
     assert msg_events[0].agent_response_finality is AgentResponseFinality.FINAL
+
+
+def test_structured_completion_content_response_gets_one_correction():
+    """Prose cannot complete a structured-output invocation."""
+    msg = Message(role="assistant", content=[TextContent(text="Done!")])
+    events, convo = _run_single_step(
+        _make_llm_response(msg), require_tool_call_for_completion=True
+    )
+    msg_events = [e for e in events if isinstance(e, MessageEvent)]
+
+    assert convo.state.execution_status != ConversationExecutionStatus.FINISHED
+    assert len(msg_events) == 2
+    assert msg_events[0].agent_response_finality is AgentResponseFinality.INTERMEDIATE
+    assert msg_events[1].source == "environment"
+    content = msg_events[1].llm_message.content[0]
+    assert isinstance(content, TextContent)
+    assert content.text.startswith(STRUCTURED_COMPLETION_RECOVERY_MARKER)
+    assert "available tools" in content.text
+
+    second_events, second_convo = _run_single_step(
+        _make_llm_response(msg),
+        seed_events=events,
+        require_tool_call_for_completion=True,
+    )
+    assert second_convo.state.execution_status != ConversationExecutionStatus.FINISHED
+    assert any(
+        isinstance(event, MessageEvent)
+        and event.authorship_origin is AuthorshipOrigin.FRAMEWORK
+        for event in second_events
+    )
+
+    third_events, third_convo = _run_single_step(
+        _make_llm_response(msg),
+        seed_events=events + second_events,
+        require_tool_call_for_completion=True,
+    )
+    assert third_convo.state.execution_status == ConversationExecutionStatus.ERROR
+    assert not any(
+        isinstance(event, MessageEvent)
+        and event.authorship_origin is AuthorshipOrigin.FRAMEWORK
+        for event in third_events
+    )
 
 
 def test_empty_response_sends_nudge():

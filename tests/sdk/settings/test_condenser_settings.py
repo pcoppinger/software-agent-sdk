@@ -3,8 +3,39 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from openhands.sdk import LLM, Message, TextContent
-from openhands.sdk.context.condenser import LLMSummarizingCondenser
+from openhands.sdk.context.condenser import (
+    LLMSummarizingCondenser,
+    TeamsCheckpointCondenser,
+)
 from openhands.sdk.settings import LLMSummarizingCondenserSettings
+from openhands.sdk.settings.model import OpenHandsAgentSettings
+
+
+def test_teams_checkpoint_settings_build_the_checkpoint_condenser() -> None:
+    settings = OpenHandsAgentSettings.model_validate(
+        {
+            "condenser": {
+                "condenser_kind": "teams_checkpoint",
+                "max_size": 1000,
+                "max_tokens": 196608,
+                "keep_first": 2,
+            }
+        }
+    )
+
+    agent = settings.create_agent()
+
+    assert type(settings.condenser).__name__ == "TeamsCheckpointCondenserSettings"
+    assert isinstance(agent.condenser, TeamsCheckpointCondenser)
+    assert agent.condenser.kind == "TeamsCheckpointCondenser"
+
+
+def test_agent_settings_preserve_tool_call_completion_requirement() -> None:
+    settings = OpenHandsAgentSettings.model_validate(
+        {"require_tool_call_for_completion": True}
+    )
+
+    assert settings.create_agent().require_tool_call_for_completion is True
 
 
 def test_default_condenser_disables_explicit_provider_thinking() -> None:
