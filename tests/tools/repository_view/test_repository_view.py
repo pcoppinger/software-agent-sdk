@@ -4,6 +4,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from openhands.sdk.agent import Agent
 from openhands.sdk.conversation.state import ConversationState
@@ -48,6 +49,22 @@ def test_repository_view_schema_has_no_mutation_surface(tmp_path: Path) -> None:
         RepositoryViewAction.model_validate(
             {"command": "create", "path": str(tmp_path / "new.txt")}
         )
+
+
+def test_repository_view_provider_schema_requires_two_range_bounds(
+    tmp_path: Path,
+) -> None:
+    tool = RepositoryViewTool.create(conversation_state(tmp_path))[0]
+    function = tool.to_openai_tool()["function"]
+    assert "parameters" in function
+    schema = function["parameters"]
+    Draft202012Validator.check_schema(schema)
+    assert Draft202012Validator(schema).is_valid(
+        {"path": str(tmp_path / "source.go"), "view_range": [1, 2]}
+    )
+    assert not Draft202012Validator(schema).is_valid(
+        {"path": str(tmp_path / "source.go"), "view_range": [1]}
+    )
 
 
 def test_repository_view_rejects_workspace_escape(tmp_path: Path) -> None:

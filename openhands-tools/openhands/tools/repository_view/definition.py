@@ -2,7 +2,7 @@
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pydantic import Field
 
@@ -13,6 +13,7 @@ from openhands.sdk.tool import (
     ToolDefinition,
     register_tool,
 )
+from openhands.sdk.tool.schema import Schema
 from openhands.tools.file_editor import FileEditorObservation
 
 
@@ -48,6 +49,18 @@ TOOL_DESCRIPTION = """Read-only repository file and directory viewer.
 
 class RepositoryViewTool(ToolDefinition[RepositoryViewAction, FileEditorObservation]):
     """Create a workspace-confined read-only viewer."""
+
+    def _get_tool_schema(
+        self,
+        add_security_risk_prediction: bool = False,
+        action_type: type[Schema] | None = None,
+    ) -> dict[str, Any]:
+        schema = super()._get_tool_schema(
+            add_security_risk_prediction=add_security_risk_prediction,
+            action_type=action_type,
+        )
+        schema["properties"]["view_range"].update(minItems=2, maxItems=2)
+        return schema
 
     def declared_resources(self, action: Action) -> DeclaredResources:
         if not isinstance(action, RepositoryViewAction):

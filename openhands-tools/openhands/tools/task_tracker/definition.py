@@ -1,7 +1,7 @@
 import json
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -21,6 +21,7 @@ from openhands.sdk.tool import (
     ToolExecutor,
     register_tool,
 )
+from openhands.sdk.tool.schema import Schema
 
 
 logger = get_logger(__name__)
@@ -46,9 +47,12 @@ class TaskTrackerAction(Action):
         default="view",
         description="The command to execute. `view` shows the current task list. `plan` creates or updates the task list based on provided requirements and progress. Always `view` the current list before making changes.",  # noqa: E501
     )
-    task_list: list[TaskItem] = Field(
-        default_factory=list,
-        description="The full task list. Required parameter of `plan` command.",
+    task_list: list[TaskItem] | None = Field(
+        default=None,
+        description=(
+            "The full task list. Required for `plan`; pass an empty list "
+            "explicitly to clear the current list."
+        ),
     )
 
     @property
@@ -172,6 +176,13 @@ class TaskTrackerExecutor(ToolExecutor[TaskTrackerAction, TaskTrackerObservation
     ) -> TaskTrackerObservation:
         """Execute the task tracker action."""
         if action.command == "plan":
+            if action.task_list is None:
+                return TaskTrackerObservation.from_text(
+                    text="The `plan` command requires `task_list`.",
+                    is_error=True,
+                    command=action.command,
+                    task_list=self._task_list,
+                )
             # Update the task list
             self._task_list = action.task_list
             # Save to file if save_dir is provided
@@ -402,6 +413,25 @@ systematic approach and ensures comprehensive requirement fulfillment."""  # noq
 
 class TaskTrackerTool(ToolDefinition[TaskTrackerAction, TaskTrackerObservation]):
     """A ToolDefinition subclass that automatically initializes a TaskTrackerExecutor."""  # noqa: E501
+
+    def _get_tool_schema(
+        self,
+        add_security_risk_prediction: bool = False,
+        action_type: type[Schema] | None = None,
+    ) -> dict[str, Any]:
+        schema = super()._get_tool_schema(
+            add_security_risk_prediction=add_security_risk_prediction,
+            action_type=action_type,
+        )
+        schema.setdefault("required", []).append("command")
+        schema["oneOf"] = [
+            {"properties": {"command": {"const": "view"}}},
+            {
+                "properties": {"command": {"const": "plan"}},
+                "required": ["task_list"],
+            },
+        ]
+        return schema
 
     @classmethod
     def create(cls, conv_state: "ConversationState") -> Sequence["TaskTrackerTool"]:

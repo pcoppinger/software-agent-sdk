@@ -4,6 +4,7 @@ import tempfile
 import uuid
 
 import pytest
+from jsonschema import Draft202012Validator
 from pydantic import SecretStr
 
 from openhands.sdk.agent import Agent
@@ -184,6 +185,21 @@ def test_bash_reset_with_is_input_validation():
             ValueError, match="Cannot use reset=True with is_input=True"
         ):
             tool(action)
+
+
+def test_terminal_provider_schema_rejects_reset_input_combination():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        tool = TerminalTool.create(_create_conv_state(temp_dir))[0]
+        function = tool.to_openai_tool()["function"]
+        assert "parameters" in function
+        schema = function["parameters"]
+        Draft202012Validator.check_schema(schema)
+        validator = Draft202012Validator(schema)
+        assert validator.is_valid({"command": "", "reset": True})
+        assert validator.is_valid({"command": "C-c", "is_input": True})
+        assert not validator.is_valid(
+            {"command": "C-c", "reset": True, "is_input": True}
+        )
 
 
 def test_bash_reset_only_with_empty_command():

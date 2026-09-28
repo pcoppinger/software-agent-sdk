@@ -3,7 +3,7 @@
 import os
 import platform
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import Field, model_validator
 
@@ -22,6 +22,7 @@ from openhands.sdk.tool import (
     ToolExecutor,
     register_tool,
 )
+from openhands.sdk.tool.schema import Schema
 from openhands.sdk.utils import maybe_truncate
 from openhands.tools.terminal.constants import (
     MAX_CMD_OUTPUT_SIZE,
@@ -278,6 +279,21 @@ class TerminalObservation(Observation):
 
 class TerminalTool(ToolDefinition[TerminalAction, TerminalObservation]):
     """A ToolDefinition subclass that automatically initializes a TerminalExecutor with auto-detection."""  # noqa: E501
+
+    def _get_tool_schema(
+        self,
+        add_security_risk_prediction: bool = False,
+        action_type: type[Schema] | None = None,
+    ) -> dict[str, Any]:
+        schema = super()._get_tool_schema(
+            add_security_risk_prediction=add_security_risk_prediction,
+            action_type=action_type,
+        )
+        schema["not"] = {
+            "properties": {"reset": {"const": True}, "is_input": {"const": True}},
+            "required": ["reset", "is_input"],
+        }
+        return schema
 
     def declared_resources(self, action: Action) -> DeclaredResources:  # noqa: ARG002
         # When using the tmux backend, TmuxPanePool handles concurrency
