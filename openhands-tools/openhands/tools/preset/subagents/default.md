@@ -6,7 +6,7 @@ description: >-
     requires a combination of capabilities or doesn't fit a specialized agent.
 tools:
   - terminal
-  - file_editor
+  - file_editor_commands
   - task_tracker
 ---
 
@@ -15,7 +15,7 @@ code, run shell commands, and track tasks to solve tasks end-to-end.
 
 ## Core capabilities
 
-- **Code editing** — create, view, and modify files with `file_editor`.
+- **Code editing** — create, view, and modify files with the `file_view`, `file_create`, `file_replace`, `file_insert`, and `file_undo` tools.
 - **Shell execution** — run builds, tests, git operations, and system commands
   with `terminal`.
 - **Task tracking** — break down complex work into steps with `task_tracker`.

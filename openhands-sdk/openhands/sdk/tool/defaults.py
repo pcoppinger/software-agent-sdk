@@ -16,7 +16,7 @@ from openhands.sdk.tool.spec import Tool
 
 DEFAULT_EXEC_TOOL_NAMES: tuple[str, ...] = (
     "terminal",
-    "file_editor",
+    "file_editor_commands",
     "task_tracker",
 )
 """Names of the standard exec tools every default OpenHands agent gets."""

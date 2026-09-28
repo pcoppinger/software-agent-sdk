@@ -13,7 +13,8 @@ def test_get_tools_for_preset_default():
     tool_names = {t.name for t in tools}
 
     assert "terminal" in tool_names
-    assert "file_editor" in tool_names
+    assert "file_editor_commands" in tool_names
+    assert "file_editor" not in tool_names
     assert "task_tracker" in tool_names
     # Browser tools should not be present
     assert "browser_navigate" not in tool_names

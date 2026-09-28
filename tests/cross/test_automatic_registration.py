@@ -17,14 +17,22 @@ def test_bash_tool_automatic_registration():
     assert "terminal" in registered_tools
 
 
-def test_file_editor_tool_automatic_registration():
-    """Test that FileEditorTool is automatically registered when imported."""
+def test_file_editor_command_tools_automatic_registration():
+    """The combined editor must not be offered to new conversations."""
     # Import the module to trigger registration
-    import openhands.tools.file_editor.definition  # noqa: F401
+    import openhands.tools.file_editor  # noqa: F401
 
     # Check that the tool is registered with snake_case name
     registered_tools = list_registered_tools()
-    assert "file_editor" in registered_tools
+    assert "file_editor_commands" in registered_tools
+    assert {
+        "file_view",
+        "file_create",
+        "file_replace",
+        "file_insert",
+        "file_undo",
+    } <= set(registered_tools)
+    assert "file_editor" not in registered_tools
 
 
 def test_task_tracker_tool_automatic_registration():

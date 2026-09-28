@@ -4,12 +4,12 @@
 def test_submodule_imports_work():
     """Tools should be imported via explicit submodules."""
     from openhands.tools.browser_use import BrowserToolSet
-    from openhands.tools.file_editor import FileEditorTool
+    from openhands.tools.file_editor import FileEditorCommands
     from openhands.tools.task_tracker import TaskTrackerTool
     from openhands.tools.terminal import TerminalTool
 
     assert TerminalTool is not None
-    assert FileEditorTool is not None
+    assert FileEditorCommands is not None
     assert TaskTrackerTool is not None
     assert BrowserToolSet is not None
 
@@ -25,7 +25,7 @@ def test_tools_module_has_expected_top_level_exports():
     import openhands.tools
 
     assert openhands.tools.TerminalTool is not None
-    assert openhands.tools.FileEditorTool is not None
+    assert openhands.tools.FileEditorCommands is not None
     assert openhands.tools.TaskTrackerTool is not None
 
     assert openhands.tools.get_default_agent is not None

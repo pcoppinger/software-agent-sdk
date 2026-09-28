@@ -14,7 +14,7 @@ from openhands.sdk.security.toolshield_helpers import (
     mcp_tools_from_config,
 )
 from openhands.tools.browser_use import BrowserToolSet
-from openhands.tools.file_editor import FileEditorTool
+from openhands.tools.file_editor import FileEditorCommands
 from openhands.tools.planning_file_editor import PlanningFileEditorTool
 from openhands.tools.preset.default import get_default_tools
 from openhands.tools.terminal import TerminalTool
@@ -23,7 +23,7 @@ from openhands.tools.terminal import TerminalTool
 def test_map_keys_match_registered_tool_names():
     """Every mapped built-in tool's real ``.name`` must be a map key."""
     for tool_cls, experience in [
-        (FileEditorTool, "filesystem-mcp"),
+        (FileEditorCommands, "filesystem-mcp"),
         (PlanningFileEditorTool, "filesystem-mcp"),
         (TerminalTool, "terminal-mcp"),
         (BrowserToolSet, "playwright-mcp"),

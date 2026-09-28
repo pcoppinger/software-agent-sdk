@@ -19,7 +19,6 @@ from openhands.sdk.tool import (
     Observation,
     ToolAnnotations,
     ToolDefinition,
-    register_tool,
 )
 from openhands.tools.file_editor.utils.diff import visualize_diff
 
@@ -49,9 +48,8 @@ class FileEditorAction(Action):
     )
     new_str: str | None = Field(
         default=None,
-        description="Optional parameter of `str_replace` command containing the "
-        "new string (if not given, no string will be added). Required parameter "
-        "of `insert` command containing the string to insert.",
+        description="Required parameter of `str_replace` and `insert`. For "
+        "`str_replace`, use an empty string to delete the matched text.",
     )
     insert_line: int | None = Field(
         default=None,
@@ -185,9 +183,9 @@ TOOL_DESCRIPTION = """Custom editing tool for viewing, creating and editing file
 
 
 Before using this tool:
-1. Use the view tool to understand the file's contents and context
+1. Use `file_editor` with `command="view"` to understand the file's contents and context
 2. Verify the directory path is correct (only applicable when creating new files):
-   - Use the view tool to verify the parent directory exists and is the correct location
+   - Use `file_editor` with `command="view"` to verify the parent directory exists
 
 When making edits:
    - Ensure the edit results in idiomatic, correct code
@@ -286,5 +284,5 @@ class FileEditorTool(ToolDefinition[FileEditorAction, FileEditorObservation]):
         ]
 
 
-# Automatically register the tool when this module is imported
-register_tool(FileEditorTool.name, FileEditorTool)
+# The combined editor is retained only for internal compatibility with stored
+# actions. New agents receive file_editor_commands, never this tool.

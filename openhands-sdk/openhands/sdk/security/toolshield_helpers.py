@@ -141,21 +141,26 @@ _EXPERIENCE_NAME_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
 
 # Registered SDK tool names whose capability surface matches a bundled
 # experience set. Built-in tools don't appear in ``mcp_config``, so without
-# this mapping an agent using e.g. the file editor (and no filesystem MCP
+# this mapping an agent using the file command tools (and no filesystem MCP
 # server) would get no filesystem experiences from the config-derived path.
 #
 # ``ToolDefinition.__init_subclass__`` derives registered names by
 # snake-casing the class name and dropping the ``_tool`` suffix
-# (``FileEditorTool`` -> ``"file_editor"``); ``Tool.name`` /
+# (``FileViewTool`` -> ``"file_view"``); ``Tool.name`` /
 # ``agent.tools[*].name`` carry those snake_case names. The CamelCase
 # class names are accepted as aliases for hand-authored configs.
 SDK_TOOL_EXPERIENCE_MAP: dict[str, str] = {
-    "file_editor": "filesystem-mcp",
+    "file_editor_commands": "filesystem-mcp",
+    "file_view": "filesystem-mcp",
+    "file_create": "filesystem-mcp",
+    "file_replace": "filesystem-mcp",
+    "file_insert": "filesystem-mcp",
+    "file_undo": "filesystem-mcp",
     "planning_file_editor": "filesystem-mcp",
     "terminal": "terminal-mcp",
     "browser_tool_set": "playwright-mcp",
     # CamelCase class-name aliases.
-    "FileEditorTool": "filesystem-mcp",
+    "FileEditorCommands": "filesystem-mcp",
     "PlanningFileEditorTool": "filesystem-mcp",
     "TerminalTool": "terminal-mcp",
     "BrowserToolSet": "playwright-mcp",

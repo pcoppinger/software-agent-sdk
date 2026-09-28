@@ -84,7 +84,7 @@ def test_register_builtins_agents_registers_expected_factories(
     # general purpose agent should never include browser tools
     assert agent_tool_names["general-purpose"] == [
         "terminal",
-        "file_editor",
+        "file_editor_commands",
         "task_tracker",
     ]
 
@@ -114,8 +114,8 @@ def test_register_builtins_agents_skips_web_researcher_without_browser() -> None
 @pytest.mark.parametrize(
     "old_name, expected_tools",
     [
-        ("default", ["terminal", "file_editor", "task_tracker"]),
-        ("default cli mode", ["terminal", "file_editor", "task_tracker"]),
+        ("default", ["terminal", "file_editor_commands", "task_tracker"]),
+        ("default cli mode", ["terminal", "file_editor_commands", "task_tracker"]),
         ("explore", ["terminal"]),
         ("bash", ["terminal"]),
     ],

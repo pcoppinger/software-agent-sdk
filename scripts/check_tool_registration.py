@@ -141,6 +141,7 @@ def main(files: list[str] | None = None) -> int:
         "preset",  # Preset modules don't define tools, just use them
         "impl.py",  # Implementation files for executors
         "executor.py",  # Executor files
+        "file_editor/definition.py",  # Retired combined tool is not registered
     }
 
     # Files with special patterns (e.g., toolsets that register one tool for many)

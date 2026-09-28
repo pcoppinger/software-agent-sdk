@@ -103,7 +103,7 @@ def test_openhands_resolves_to_settings_with_injected_llm(
     agent = settings.create_agent()
     assert isinstance(agent, Agent)
     agent_tool_names = [t.name for t in agent.tools]
-    assert {"terminal", "file_editor", "task_tracker"} <= set(agent_tool_names)
+    assert {"terminal", "file_editor_commands", "task_tracker"} <= set(agent_tool_names)
     assert "task_tool_set" in agent_tool_names
 
 
@@ -133,7 +133,7 @@ def test_openhands_resolves_default_exec_tools(
     agent = settings.create_agent()
     assert [t.name for t in agent.tools] == [
         "terminal",
-        "file_editor",
+        "file_editor_commands",
         "task_tracker",
     ]
 

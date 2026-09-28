@@ -605,7 +605,7 @@ class OpenHandsWebChat {
                 },
                 tools: [
                     { "name": "terminal" },
-                    { "name": "file_editor" },
+                    { "name": "file_editor_commands" },
                     { "name": "task_tracker" },
                     { "name": "browser_tool_set" }
                 ]

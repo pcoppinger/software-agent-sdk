@@ -884,7 +884,7 @@ class TestToolShieldHelpers:
 
     def test_mcp_tools_from_config_covers_explicit_sdk_tools(self):
         """Built-in SDK tools never appear in mcp_config; the tool_names
-        parameter maps them (e.g. file_editor -> filesystem-mcp) so the
+        parameter maps them (e.g. file_editor_commands -> filesystem-mcp) so the
         recommended path doesn't silently omit filesystem experiences
         (red-team finding on PR #2911). Registered names are snake_case
         (``ToolDefinition.__init_subclass__``); the literals here are
@@ -894,7 +894,7 @@ class TestToolShieldHelpers:
         from openhands.sdk.security import toolshield_helpers as th
 
         result = th.mcp_tools_from_config(
-            {}, tool_names=["file_editor", "task_tracker"]
+            {}, tool_names=["file_editor_commands", "task_tracker"]
         )
         assert "filesystem-mcp" in result
         # Unmapped SDK tools are ignored, not forwarded.
@@ -905,25 +905,27 @@ class TestToolShieldHelpers:
         from openhands.sdk.security import toolshield_helpers as th
 
         result = th.mcp_tools_from_config(
-            {}, tool_names=["FileEditorTool", "BrowserToolSet"]
+            {}, tool_names=["FileEditorCommands", "BrowserToolSet"]
         )
         assert "filesystem-mcp" in result
         assert "playwright-mcp" in result
 
     def test_mcp_tools_from_config_dedupes_tool_and_server_surface(self):
-        """A filesystem MCP server plus FileEditorTool must yield a single
+        """A filesystem MCP server plus editor commands must yield a single
         filesystem-mcp entry."""
         from openhands.sdk.security import toolshield_helpers as th
 
         config = {"mcpServers": {"filesystem": {}}}
-        result = th.mcp_tools_from_config(config, tool_names=["file_editor"])
+        result = th.mcp_tools_from_config(config, tool_names=["file_editor_commands"])
         assert result.count("filesystem-mcp") == 1
 
     @requires_toolshield
     def test_safety_experiences_for_mcp_config_accepts_tool_names(self):
         from openhands.sdk.security import toolshield_helpers as th
 
-        result = th.safety_experiences_for_mcp_config({}, tool_names=["file_editor"])
+        result = th.safety_experiences_for_mcp_config(
+            {}, tool_names=["file_editor_commands"]
+        )
         assert "filesystem" in result.lower()
 
     @requires_toolshield

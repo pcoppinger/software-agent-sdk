@@ -21,7 +21,7 @@ class Tool(BaseModel):
             "Name of the tool class, e.g., 'TerminalTool'. "
             "Import it from an `openhands.tools.<module>` subpackage."
         ),
-        examples=["TerminalTool", "FileEditorTool", "TaskTrackerTool"],
+        examples=["terminal", "file_editor_commands", "task_tracker"],
     )
     params: dict[str, Any] = Field(
         default_factory=dict,

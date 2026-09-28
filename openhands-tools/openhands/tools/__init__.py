@@ -20,7 +20,7 @@ from importlib.metadata import PackageNotFoundError, version
 
 from openhands.tools.ask_oracle import AskOracleTool
 from openhands.tools.delegate import DelegationVisualizer
-from openhands.tools.file_editor import FileEditorTool
+from openhands.tools.file_editor import FileEditorCommands
 from openhands.tools.preset.default import (
     get_default_agent,
     get_default_tools,
@@ -43,7 +43,7 @@ __all__ = [
     "__version__",
     "AskOracleTool",
     "DelegationVisualizer",
-    "FileEditorTool",
+    "FileEditorCommands",
     "TaskToolSet",
     "TaskTrackerTool",
     "TerminalTool",
