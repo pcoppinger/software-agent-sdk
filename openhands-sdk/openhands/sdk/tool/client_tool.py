@@ -10,6 +10,8 @@ This eliminates the need for Python tool code in JavaScript repos and the comple
 """
 
 import copy
+import hashlib
+import json
 import threading
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Self
@@ -37,17 +39,13 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 # Cached dynamic action types
 #
-# ``Action.from_mcp_schema`` creates a *concrete* ``Action`` subclass whose
-# ``kind`` is derived from the class name (``ClientAction_<name>``). These
-# subclasses register process-globally in the discriminated-union hierarchy,
-# so creating two classes with the same name (e.g. when the same client tool
-# is registered twice, or re-created on conversation resume) makes
-# ``Action.resolve_kind`` raise a duplicate-class error and breaks event
-# deserialization. We therefore cache the generated type per tool name and
-# reject same-name/different-schema conflicts explicitly.
+# ``Action.from_mcp_schema`` creates a concrete subclass whose class name is
+# its persisted discriminator. A client tool name may legitimately have a
+# different schema in another conversation (for example, a role-specific
+# result contract), so the action kind includes the canonical schema digest.
+# Repeated registrations of the same name/schema pair reuse one class.
 # ---------------------------------------------------------------------------
-_client_action_types: dict[str, type[Action]] = {}
-_client_action_schemas: dict[str, dict[str, Any]] = {}
+_client_action_types: dict[tuple[str, str], type[Action]] = {}
 _client_tool_names: set[str] = set()
 _client_action_lock = threading.RLock()
 
@@ -62,37 +60,23 @@ class ClientToolRegistrationError(ValueError):
 
 
 class ClientToolSchemaConflictError(ClientToolRegistrationError):
-    """Raised when a client tool name is reused with a different schema.
-
-    The generated action ``kind`` (``ClientAction_<name>``) is process-global,
-    so a single name cannot represent two different parameter schemas.
-    """
+    """Retained for API compatibility with earlier client-tool versions."""
 
 
 def _get_client_action_type(name: str, schema: dict[str, Any]) -> type[Action]:
-    """Return a cached ``Action`` subclass for ``name`` built from ``schema``.
-
-    Reuses the previously generated type when the same ``name`` + ``schema``
-    is requested again. Raises :class:`ClientToolSchemaConflictError` if ``name``
-    was already registered with a *different* schema, since the generated action
-    ``kind`` is process-global and cannot represent two schemas at once.
-    """
+    """Return the process-wide action class for one tool name/schema pair."""
+    encoded = json.dumps(schema, sort_keys=True, separators=(",", ":"))
+    schema_digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    cache_key = (name, schema_digest)
     with _client_action_lock:
-        existing = _client_action_types.get(name)
+        existing = _client_action_types.get(cache_key)
         if existing is not None:
-            if _client_action_schemas[name] != schema:
-                raise ClientToolSchemaConflictError(
-                    f"Client tool '{name}' is already registered with a different "
-                    "parameters schema. Client tool names must map to a single, "
-                    "stable schema within a process."
-                )
             return existing
         action_type = Action.from_mcp_schema(
-            model_name=f"ClientAction_{name}",
+            model_name=f"ClientAction_{name}_{schema_digest}",
             schema=schema,
         )
-        _client_action_types[name] = action_type
-        _client_action_schemas[name] = copy.deepcopy(schema)
+        _client_action_types[cache_key] = action_type
         return action_type
 
 

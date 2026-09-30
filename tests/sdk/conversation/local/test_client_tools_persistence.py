@@ -16,11 +16,9 @@ from openhands.sdk.utils.models import clear_subclass_cache
 def _collect_dynamic_client_tool_classes():
     """Drop the dynamic ``ClientAction_*`` classes these tests define.
 
-    Each client tool spec builds a new class, so a test that registers the same
-    tool name twice leaves two same-named classes behind. They are only
-    reachable through reference cycles, so until a cyclic collection runs they
-    stay in ``Action.__subclasses__()`` and make the duplicate-class check in
-    ``_get_checked_concrete_subclasses`` fail in *unrelated* later tests.
+    Each distinct name/schema pair builds a class. They are only reachable
+    through reference cycles after the registry is cleared, so collect them
+    before unrelated tests inspect ``Action.__subclasses__()``.
     Collecting on teardown, once the test frame is gone, keeps that leak local.
     """
     yield
@@ -38,7 +36,6 @@ def _make_agent() -> Agent:
 def _wipe_client_tool_globals(names: list[str]) -> None:
     """Simulate a fresh process where dynamic client tools are unregistered."""
     ct._client_action_types.clear()
-    ct._client_action_schemas.clear()
     for name in names:
         reg._REG.pop(name, None)
         reg._USABILITY_REG.pop(name, None)

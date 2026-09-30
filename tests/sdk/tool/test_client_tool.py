@@ -219,7 +219,7 @@ def test_client_tool_kind_argument_action_event_roundtrip():
     assert restored.action is not None
     restored_action_dump = restored.action.model_dump()
     assert restored_action_dump["mcp_arg_kind"] == "Method"
-    assert restored.action.kind == "ClientAction_symbol_lookup"
+    assert restored.action.kind == tool.action_type.__name__
 
 
 def test_client_tool_kind_argument_concrete_action_roundtrip():
@@ -394,8 +394,8 @@ def test_same_spec_reuses_action_type():
     assert tool_a.action_type is tool_b.action_type
 
 
-def test_same_name_different_schema_conflicts():
-    """Same name with a different schema is rejected explicitly."""
+def test_same_name_different_schemas_keep_distinct_action_kinds():
+    """Separate conversations may give one client tool different contracts."""
     spec_a = ClientToolSpec(
         name="conflict_tool",
         description="A",
@@ -406,9 +406,34 @@ def test_same_name_different_schema_conflicts():
         description="B",
         parameters={"type": "object", "properties": {"x": {"type": "integer"}}},
     )
-    ClientTool.from_spec(spec_a)
-    with pytest.raises(ValueError, match="different"):
-        ClientTool.from_spec(spec_b)
+    tool_a = ClientTool.from_spec(spec_a)
+    tool_b = ClientTool.from_spec(spec_b)
+    assert tool_a.name == tool_b.name == "conflict_tool"
+    assert tool_a.action_type is not tool_b.action_type
+    assert tool_a.action_type.__name__ != tool_b.action_type.__name__
+    action_a = tool_a.action_from_arguments({"x": "one"})
+    action_b = tool_b.action_from_arguments({"x": 2})
+    assert Action.model_validate(action_a.model_dump(mode="json")).kind == action_a.kind
+    assert Action.model_validate(action_b.model_dump(mode="json")).kind == action_b.kind
+
+
+def test_register_same_name_different_schemas_across_requests():
+    first = ClientToolSpec(
+        name="role_result_tool",
+        description="First role result",
+        parameters={"type": "object", "properties": {"title": {"type": "string"}}},
+    )
+    second = ClientToolSpec(
+        name="role_result_tool",
+        description="Second role result",
+        parameters={"type": "object", "properties": {"count": {"type": "integer"}}},
+    )
+    first_spec = register_client_tools([first])[0]
+    second_spec = register_client_tools([second])[0]
+    first_tool = resolve_tool(first_spec, cast(Any, None))[0]
+    second_tool = resolve_tool(second_spec, cast(Any, None))[0]
+    assert first_tool.name == second_tool.name == "role_result_tool"
+    assert first_tool.action_type is not second_tool.action_type
 
 
 # ---------------------------------------------------------------------------
