@@ -504,10 +504,10 @@ class ResponseDispatchMixin:
             text = (
                 f"{ACTION_RECOVERY_MARKER}\n"
                 "Your reasoning ended without a function call or visible message. "
-                "Do not continue, repeat, or reconsider the analysis. Make exactly "
-                "one tool call now. If the assigned result is ready, call finish "
-                "with that result; otherwise make the single repository or execution "
-                "call needed to unblock it."
+                "Make one available tool call that advances the assigned task. "
+                "If its result is ready, use the completion tool named by the "
+                "task's result_protocol. Otherwise use only a tool needed for "
+                "that task, with arguments from its exposed schema."
             )
         else:
             text = f"{ACTION_RECOVERY_MARKER}\n{LEGACY_ACTION_RECOVERY_NUDGE}"

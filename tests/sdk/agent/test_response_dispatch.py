@@ -477,7 +477,9 @@ def test_reasoning_only_sends_nudge():
     nudge = msg_events[1].llm_message.content[0]
     assert isinstance(nudge, TextContent)
     assert nudge.text.startswith(ACTION_RECOVERY_MARKER)
-    assert "Do not continue, repeat, or reconsider" in nudge.text
+    assert "completion tool named by the task's result_protocol" in nudge.text
+    assert "call finish" not in nudge.text
+    assert "repository or execution call" not in nudge.text
 
 
 def test_reasoning_only_recovery_disables_thinking_for_one_sync_turn() -> None:
