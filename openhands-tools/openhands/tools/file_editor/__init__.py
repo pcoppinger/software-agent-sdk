@@ -7,7 +7,7 @@ from openhands.tools.file_editor.impl import (
     FileEditorExecutor,
     file_editor as file_editor,
 )
-from openhands.tools.file_editor.wrappers import FileEditorCommands
+from openhands.tools.file_editor.wrappers import FileEditorCommands, FileWriteCommands
 
 
 __all__ = [
@@ -15,4 +15,5 @@ __all__ = [
     "FileEditorObservation",
     "FileEditorExecutor",
     "FileEditorCommands",
+    "FileWriteCommands",
 ]

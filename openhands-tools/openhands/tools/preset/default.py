@@ -20,15 +20,32 @@ logger = get_logger(__name__)
 def register_default_tools(enable_browser: bool = True) -> None:
     """Register the default set of tools."""
     # Tools are now automatically registered when imported
+    from openhands.tools.checklist_operations import ChecklistOperations
+    from openhands.tools.command_operations import CommandOperations
     from openhands.tools.file_editor import FileEditorCommands
+    from openhands.tools.file_editor.wrappers import FileWriteCommands
+    from openhands.tools.file_navigation import (
+        FileReadTool,
+        FindFilesTool,
+        ListFilesTool,
+        SearchFileContentsTool,
+    )
     from openhands.tools.glob import GlobTool
     from openhands.tools.repository_search import RepositorySearchTool
     from openhands.tools.repository_view import RepositoryViewTool
     from openhands.tools.task_tracker import TaskTrackerTool
+    from openhands.tools.team_context import ReadEvidenceTool, RepositoryDiffOperations
     from openhands.tools.terminal import TerminalTool
 
     logger.debug(f"Tool: {TerminalTool.name} registered.")
     logger.debug(f"Tool: {FileEditorCommands.name} registered.")
+    logger.debug(f"Tool: {FileWriteCommands.name} registered.")
+    logger.debug(f"Tool: {CommandOperations.name} registered.")
+    logger.debug(f"Tool: {ChecklistOperations.name} registered.")
+    logger.debug(f"Tool: {ReadEvidenceTool.name} registered.")
+    logger.debug(f"Tool: {RepositoryDiffOperations.name} registered.")
+    for tool in (FileReadTool, ListFilesTool, FindFilesTool, SearchFileContentsTool):
+        logger.debug(f"Tool: {tool.name} registered.")
     logger.debug(f"Tool: {GlobTool.name} registered.")
     logger.debug(f"Tool: {RepositorySearchTool.name} registered.")
     logger.debug(f"Tool: {RepositoryViewTool.name} registered.")
