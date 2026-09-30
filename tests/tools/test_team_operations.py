@@ -59,21 +59,27 @@ def test_write_operations_share_editor_and_require_exact_mutation_digest(
 ) -> None:
     tools = {tool.name: tool for tool in FileWriteCommands.create(_state(tmp_path))}
     path = tmp_path / "note.txt"
-    created = tools["file_create"](CreateFileAction(path=str(path), content="alpha\n"))
+    created = tools["file_create"](CreateFileAction(path="note.txt", content="alpha\n"))
     assert not created.is_error
     assert tools["file_create"](
-        CreateFileAction(path=str(path), content="other")
+        CreateFileAction(path="note.txt", content="other")
     ).is_error
     replaced = tools["replace_text_in_file"](
-        ReplaceTextInFileAction(path=str(path), old_text="alpha", new_text="beta")
+        ReplaceTextInFileAction(path="note.txt", old_text="alpha", new_text="beta")
     )
     assert not replaced.is_error
     inserted = tools["insert_file_text"](
-        InsertFileTextAction(path=str(path), after_line=1, content="gamma\n")
+        InsertFileTextAction(path="note.txt", after_line=1, content="gamma\n")
     )
     assert not inserted.is_error
-    assert not tools["undo_file_edit"](UndoFileEditAction(path=str(path))).is_error
+    assert not tools["undo_file_edit"](UndoFileEditAction(path="note.txt")).is_error
     assert path.read_text() == "beta\n"
+    assert tools["replace_text_in_file"].declared_resources(
+        ReplaceTextInFileAction(path="note.txt", old_text="beta", new_text="again")
+    ).keys == (f"file:{path}",)
+    assert tools["replace_text_in_file"](
+        ReplaceTextInFileAction(path="../escape.txt", old_text="beta", new_text="again")
+    ).is_error
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     assert tools["file_move"](
         MoveFileAction(

@@ -296,14 +296,23 @@ class UndoFileEditAction(Action):
 
 
 class _ModernEditExecutor(ToolExecutor[Action, FileEditorObservation]):
-    def __init__(self, editor: FileEditorExecutor, command: str):
+    def __init__(self, editor: FileEditorExecutor, command: str, root: Path):
         self.editor = editor
         self.command = command
+        self.root = root.resolve()
 
     def __call__(
         self, action: Action, conversation: "LocalConversation | None" = None
     ) -> FileEditorObservation:
-        arguments: dict[str, Any] = {"path": getattr(action, "path")}
+        supplied = Path(getattr(action, "path"))
+        path = (supplied if supplied.is_absolute() else self.root / supplied).resolve()
+        if not path.is_relative_to(self.root) or path == self.root:
+            return FileEditorObservation.from_text(
+                text="File path must remain inside the workspace",
+                command=self.command,
+                is_error=True,
+            )
+        arguments: dict[str, Any] = {"path": str(path)}
         if isinstance(action, CreateFileAction):
             arguments["file_text"] = action.content
         elif isinstance(action, ReplaceTextInFileAction):
@@ -317,6 +326,14 @@ class _ModernEditExecutor(ToolExecutor[Action, FileEditorObservation]):
 
 
 class _ModernEditMixin(_FileCommandMixin):
+    def declared_resources(self, action: Action) -> DeclaredResources:
+        executor = cast(_ModernEditExecutor, getattr(self, "executor"))
+        supplied = Path(getattr(action, "path"))
+        path = (
+            supplied if supplied.is_absolute() else executor.root / supplied
+        ).resolve()
+        return DeclaredResources(keys=(f"file:{path}",), declared=True)
+
     def _get_tool_schema(
         self,
         add_security_risk_prediction: bool = False,
@@ -352,7 +369,9 @@ class _ModernEditMixin(_FileCommandMixin):
                     idempotentHint=False,
                     openWorldHint=False,
                 ),
-                executor=_ModernEditExecutor(editor, cls.command),
+                executor=_ModernEditExecutor(
+                    editor, cls.command, Path(conv_state.workspace.working_dir)
+                ),
             )
         ]
 
@@ -515,13 +534,22 @@ class _FileMutationMixin:
 
     def declared_resources(self, action: Action) -> DeclaredResources:
         assert isinstance(action, (DeleteFileAction, MoveFileAction))
+        executor = cast(_FileMutationExecutor, getattr(self, "executor"))
         paths = (
             [action.path]
             if isinstance(action, DeleteFileAction)
             else [action.source_path, action.destination_path]
         )
+        resolved = []
+        for path in paths:
+            supplied = Path(path)
+            resolved.append(
+                (
+                    supplied if supplied.is_absolute() else executor.root / supplied
+                ).resolve()
+            )
         return DeclaredResources(
-            keys=tuple(f"file:{Path(path).resolve()}" for path in paths), declared=True
+            keys=tuple(f"file:{path}" for path in resolved), declared=True
         )
 
     @classmethod
